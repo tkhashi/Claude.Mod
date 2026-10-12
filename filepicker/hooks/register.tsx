@@ -407,8 +407,8 @@ async function togglePreview($: any) {
 
 // Quick Look を開くスクリプト。セッションのバックグラウンドのホストから開いた
 // パネルはターミナルの後ろに出るので、窓が立ち上がる間に何度か最前面へ出し、
-// 前回のパネルが残っていれば閉じる。テキストファイルは Quick Look が必ず描け
-// るプレーンテキストとして開かせる。別の .sh ファイルにせずここに文字列で埋め
+// 前回のパネルが残っていれば閉じる。Quick Look が表示できない種類のテキスト
+// は .txt の一時コピーで開く。別の .sh ファイルにせずここに文字列で埋め
 // 込んでいるのは、プラグインのコードが自分のインストール先フォルダを知る API
 // が無く、同梱したファイルを実行時に見つけられないため。インストール先
 // (~/.claude/plugins/cache/<マーケットプレイス>/filepicker/<バージョン>/)はマ
@@ -416,14 +416,24 @@ async function togglePreview($: any) {
 // ば、マーケットプレイスからインストールしてもそのまま動く。
 const PEEK_SCRIPT = `#!/bin/sh
 pkill -x qlmanage 2>/dev/null
-# Text Quick Look has nothing to draw for (TOML, .gitignore, any dotfile or
-# unknown extension) is shown as plain text; HTML, SVG and RTF keep their own.
-enc=$(file -b --mime-encoding "$1" 2>/dev/null)
-mime=$(file -b --mime-type "$1" 2>/dev/null)
-case "$enc:$mime" in
-  binary:*|*:text/html|*:image/svg+xml|*:text/rtf) qlmanage -p "$1" >/dev/null 2>&1 & ;;
-  *) qlmanage -p -c public.plain-text "$1" >/dev/null 2>&1 & ;;
+f="$1"
+# Quick Look のパネルはファイル自身の種類で表示を決め、-c の指定はサムネイル
+# にしか効かない。表示できる種類(プレーンテキスト、JSON、XML、ソースコード、
+# HTML、SVG、RTF など)を含まないテキスト(.gitignore、TOML、拡張子の無い
+# ファイル)は、.txt を付けた一時コピーを開く。コピーは利用者専用の $TMPDIR
+# に置き、次のプレビューで消す。
+tree=$(mdls -raw -name kMDItemContentTypeTree "$f" 2>/dev/null)
+case "$tree" in
+  *public.plain-text*|*public.json*|*public.xml*|*public.source-code*|*public.script*|*public.html*|*public.svg-image*|*public.rtf*) ;;
+  *)
+    if [ "$(file -b --mime-encoding "$f" 2>/dev/null)" != binary ]; then
+      tmp="\${TMPDIR:-/tmp}"
+      rm -rf "$tmp"/claude-filepicker-peek.* 2>/dev/null
+      d=$(mktemp -d "$tmp/claude-filepicker-peek.XXXXXX") && cp "$f" "$d/$(basename "$f").txt" && f="$d/$(basename "$f").txt"
+    fi
+    ;;
 esac
+qlmanage -p "$f" >/dev/null 2>&1 &
 for i in 1 2 3 4; do
   sleep 0.5
   osascript -e 'tell application "System Events" to set frontmost of (first process whose name is "qlmanage") to true' >/dev/null 2>&1
