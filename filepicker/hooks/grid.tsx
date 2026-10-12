@@ -1,15 +1,15 @@
 import type { ClientModule } from 'claude-code'
 
-// One entry of the grid, its label already laid to the cell's width.
+// 一覧の1項目。ラベルはセルの幅に合わせ済み。
 type Item = { label: string; color: string; path: string; done: boolean }
 type Props = { cell: number; rows: Item[][] }
 type State = { hover: number | null; onIcon: boolean; cursor: number | null }
 
-// The entries as a grid that reads the pointer itself, so where a click lands
-// in its cell says what it does: on a file's icon it shows the file in Quick
-// Look, on its name it picks it (a folder opens either way). An option-click
-// (alt on Windows) previews too, where the terminal reports the key.
-// Clicked, it takes the keys: arrows move, Return picks, Space previews.
+// 項目を並べた一覧で、ポインタを自分で読む。そのためセルのどこを押したかで動
+// 作を分けられる。ファイルのアイコンを押すと Quick Look で表示し、名前を押す
+// と選択する(フォルダはどちらでも開く)。option+クリック(Windows では alt+クリ
+// ック)も、ターミナルがそのキーを報告する場合はプレビューになる。クリックする
+// とキー入力を受け取り、矢印で移動、Return で選択、Space でプレビューする。
 const Grid: ClientModule<Props, State> = (props, surface) => {
   const { Box, Text } = surface.elements
   const state = surface.state ?? { hover: null, onIcon: false, cursor: null }
@@ -22,7 +22,7 @@ const Grid: ClientModule<Props, State> = (props, surface) => {
     const i = y * cols + col
     return i < items.length ? i : null
   }
-  // The icon and the blank after it: the first two columns of a cell.
+  // アイコンとその後の空白。セルの先頭2マス。
   const onIconAt = (x: number) => x - Math.floor(x / props.cell) * props.cell < 2
   const send = (i: number | null, peek: boolean) => {
     const item = i === null ? undefined : items[i]
@@ -51,8 +51,8 @@ const Grid: ClientModule<Props, State> = (props, surface) => {
     else if (k.key === 'left') move(from - 1)
     else if (k.key === 'down') move(from + cols)
     else if (k.key === 'up') move(from - cols)
-    // Return and Space act on a chosen entry only, never on the first by
-    // default after a click on blank space.
+    // Return と Space は選択中の項目にだけ働く。空き部分をクリックした後に、
+    // 既定で先頭の項目に働くことはない。
     else if (k.key === 'return' && state.cursor !== null) send(state.cursor, false)
     else if (k.key === ' ' && state.cursor !== null) send(state.cursor, true)
   })
@@ -63,8 +63,8 @@ const Grid: ClientModule<Props, State> = (props, surface) => {
         <Box key={`g${r}`}>
           {row.map((item, c) => {
             const i = r * cols + c
-            // Under the pointer, a file's icon lights alone (a press there
-            // previews), or the whole entry does (a press picks).
+            // ポインタの下では、ファイルのアイコンだけが光る(押すとプレビュー
+            // )か、項目全体が光る(押すと選択)。
             const hovered = i === state.hover
             const iconLit = hovered && state.onIcon && item.done
             const lit = (hovered && !iconLit) || i === state.cursor

@@ -4,8 +4,8 @@ import type { On } from 'claude-code'
 import { crumbs, extensions, fitCells, mentionOf, styleOf, textWidth, whereIs, matching, mentionAt, ofKind, parentOf, resolveDir, splitQuery } from './register'
 import { DEVICONS_BY_EXT, DEVICONS_BY_NAME } from './devicons'
 
-// The engine beneath the plugin: a draft the person edits, a folder tree `ls`
-// reads, and the band's own drawing.
+// プラグインの下にあるエンジン部分。ユーザーが編集するプロンプト、`ls` が読む
+// フォルダ構成、帯そのものの描画。
 const engine = (on: On, box: { text: string; cursor: number }, filled: string[], ran: string[] = []) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -32,7 +32,7 @@ const engine = (on: On, box: { text: string; cursor: number }, filled: string[],
     if (argv.includes('setsid')) return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as any
     if (argv.includes('/repo/many')) return out(Array.from({ length: 80 }, (_, i) => `f${String(i).padStart(2, '0')}.txt`).join('\n'))
-    // Newest first with -t: util.ts was touched last, app.ts first.
+    // -t の新しい順では、util.ts が最後に、app.ts が最初に更新された。
     if (argv.includes('/repo/My Docs')) return out('a b.txt\n')
     if (argv.includes('/repo/src')) return out(argv.includes('-1Apt') ? 'util.ts\nlib/\nREADME.md\napp.ts\n' : 'README.md\napp.ts\nlib/\nutil.ts\n')
     if (argv.includes('/repo')) return out('README.md\nsrc/\n.git/\nMy Docs/\n')
@@ -43,8 +43,8 @@ const engine = (on: On, box: { text: string; cursor: number }, filled: string[],
 const type = ($: any, box: { text: string; cursor: number }, input: string) =>
   $.prompt.edit({ origin: { kind: 'composer' }, text: box.text, cursor: box.cursor, start: box.cursor, end: box.cursor, inputText: input })
 
-// The grid's cells as drawn by its module: each entry's name (a folder's
-// with its `/`), and where on the grid a pointer finds it.
+// 一覧のモジュールが描いたセル。各項目の名前(フォルダは `/` 付き)と、ポインタ
+// で当てる一覧上の位置。
 const cells = async (ui: any) => {
   const out: { name: string; x: number; y: number }[] = []
   let tree: any
@@ -66,11 +66,12 @@ const cells = async (ui: any) => {
   return out
 }
 
-// The entries' names in the order drawn, `..` left out.
+// 描かれた順の項目名。`..` は除く。
 const order = async (ui: any) => (await cells(ui)).map(c => c.name.replace(/\/$/, '')).filter(n => n !== '..')
 const shows = async (ui: any, name: string) => (await cells(ui)).some(c => c.name === name)
 
-// A click on the entry's name, plain or with option (alt) held.
+// 項目の名前部分のクリック。普通のクリックか、option(alt)を押しながらのクリッ
+// ク。
 const click = async (ui: any, name: string, alt = false) => {
   const cell = (await cells(ui)).find(c => c.name === name)
   if (!cell) throw new Error(`no entry ${name}`)
@@ -260,7 +261,7 @@ test('in the grid, arrows move, Space previews, Return picks', async ($, on) => 
   engine(on, box, filled, ran)
   const ui = await band($)
   await type($, box, '@src/')
-  // .. first, then util.ts, newest first.
+  // 先頭が ..、その次が新しい順で util.ts。
   await ui.key({ key: 'right', in: 'fp-grid' })
   await ui.key({ key: ' ', in: 'fp-grid' })
   expect(ran.some(r => r.includes('setsid') && r.includes('src/util.ts')), 'previewed').toBe(true)
@@ -333,7 +334,7 @@ test('moving the caret back inside the mention keeps its folder', async ($, on) 
   const ui = await band($)
   await type($, box, '@src/')
   expect(await shows(ui, 'app.ts')).toBe(true)
-  // The caret steps back to just after the @.
+  // キャレットを @ の直後まで戻す。
   await ($ as any).prompt.edit({ origin: { kind: 'composer' }, text: box.text, cursor: box.cursor, start: 1, end: 1, inputText: '' })
   box.cursor = 1
   expect(await shows(ui, 'app.ts'), 'still src').toBe(true)

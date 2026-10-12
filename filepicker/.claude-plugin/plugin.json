@@ -1,1 +1,1 @@
-{ "name": "filepicker", "version": "0.13.0", "description": "Browse and pick files and folders above the prompt while an @ mention is typed", "types": "./types/index.d.ts" }
+{ "name": "filepicker", "version": "0.13.1", "description": "Browse and pick files and folders above the prompt while an @ mention is typed", "types": "./types/index.d.ts" }

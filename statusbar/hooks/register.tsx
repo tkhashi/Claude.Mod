@@ -3,8 +3,8 @@ import type { Register } from 'claude-code'
 
 import type { Agent, Picker, Snap, View, Worktree } from '../types'
 
-// Aliases always name the newest model of each family, so the picker keeps up
-// with new releases; used when the /config menu lists no model options.
+// エイリアスは常に各ファミリーの最新モデルを指すので、新しいモデルが出てもピ
+// ッカーが追従する。/config のメニューにモデルの選択肢が無いときに使う。
 const MODEL_ALIASES = ['opus', 'sonnet', 'haiku', 'fable']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -35,8 +35,8 @@ const picker = atom({ plugin: 'statusbar', key: 'picker' } as const, null as Pic
 const EFFORT_STORE_KEY = 'effort'
 const COMPACT_STORE_KEY = 'compact'
 
-// The band is a vim-style statusline of solid blocks, so it brings its own
-// palette (Catppuccin Mocha) rather than the theme's, made for a dark screen.
+// 帯は vim 風のステータスラインで、ベタ塗りのブロックを並べる。そのためテーマ
+// の色ではなく、暗い画面向けの独自パレット(Catppuccin Mocha)を持つ。
 const C = {
   ink: '#1e1e2e',
   text: '#cdd6f4',
@@ -55,14 +55,14 @@ const C = {
   pink: '#f5c2e7',
 }
 
-// A color `t` of the way from `b` to `a`: a gauge's fill and track are its
-// own color sunk toward the ink, so the whole gauge reads as one hue.
+// `b` から `a` へ `t` の割合だけ寄せた色。ゲージの塗りと下地は自分の色をイン
+// ク側へ沈めたものにして、ゲージ全体が1つの色相に見えるようにする。
 const mix = (a: string, b: string, t: number) => {
   const ch = (h: string, i: number) => parseInt(h.slice(1 + 2 * i, 3 + 2 * i), 16)
   return `#${[0, 1, 2].map(i => Math.round(ch(a, i) * t + ch(b, i) * (1 - t)).toString(16).padStart(2, '0')).join('')}`
 }
 
-// Powerline and Nerd Font glyphs.
+// Powerline と Nerd Font のグリフ。
 const I = {
   right: '',
   left: '',
@@ -96,8 +96,8 @@ const effortColor: Record<string, string> = {
   low: C.teal,
 }
 
-// Kept apart from the efforts' colors, so the model and effort blocks beside
-// each other never share one.
+// effort 側の色とは重ならない色にしてある。隣り合う model と effort のブロッ
+// クが同じ色にならないようにするため。
 const familyColor: Record<string, string> = { opus: C.mauve, sonnet: C.blue, haiku: C.lavender, fable: C.pink }
 
 const modelColor = (model: string) => {
@@ -137,9 +137,9 @@ const kTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M
 
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
-// A model id as people say it: "claude-opus-5-5[1m]" is "Opus 5.5 1M",
-// "claude-haiku-4-5-20251001" "Haiku 4.5", "claude-3-5-sonnet-20241022"
-// "Sonnet 3.5"; a name already short, or one of no known shape, as it is.
+// モデル ID を人が呼ぶ名前にする。"claude-opus-5-5[1m]" は "Opus 5.5 1M"、
+// "claude-haiku-4-5-20251001" は "Haiku 4.5"、"claude-3-5-sonnet-20241022" は
+// "Sonnet 3.5"。すでに短い名前や、形の分からないものはそのまま返す。
 const prettyModel = (id: string, withCtx = true) => {
   const ctx = withCtx ? /\[(\d+[km])\]$/i.exec(id)?.[1]?.toUpperCase() : undefined
   const base = id.replace(/\[[^\]]*\]$/, '').replace(/^(?:[a-z]+\.)?anthropic\./, '').replace(/-v\d+(?::\d+)?$/, '')
@@ -154,29 +154,30 @@ const prettyModel = (id: string, withCtx = true) => {
   return ctx ? `${name} ${ctx}` : name
 }
 
-// The model at its shortest: the family's initial and the version, `S5.5`
-// for "Sonnet 5.5".
+// 最も短いモデル名。ファミリーの頭文字とバージョンで、"Sonnet 5.5" なら
+// `S5.5`。
 const shortModel = (id: string) => {
   const [family, ...rest] = prettyModel(id, false).split(' ')
   return `${(family ?? '').charAt(0)}${rest.join('')}`
 }
 
-// Whether the option names the model running now: "opus" for
-// "claude-opus-5-5", "opus[1m]" only for its 1M context.
+// 選択肢が今動いているモデルを指しているか。"claude-opus-5-5" には "opus" が
+// 当たり、"opus[1m]" は 1M コンテキストのときだけ当たる。
 const isCurrentModel = (option: string, model: string) => {
   const o = option.toLowerCase()
   const m = model.toLowerCase()
   if (o === m) return true
-  // An alias names a family and, with `[1m]`, a context size: both must match.
+  // エイリアスはファミリーを表し、`[1m]` が付けばコンテキストサイズも表す。両
+  // 方が一致する必要がある。
   const ctx = (x: string) => /\[(\d+[km])\]$/.exec(x)?.[1] ?? ''
   const family = o.replace(/\[[^\]]*\]$/, '')
   return /^[a-z]+$/.test(family) && m.includes(family) && ctx(o) === ctx(m)
 }
 
-// One run of styled text; a segment is a few runs drawn side by side, and
-// pressing a segment runs its action.
-// `bgHover` restyles the background apart from the color, for a glyph shared
-// by two blocks: its color is one block's, its background the next one's.
+// スタイル付きの文字列ひと続き。セグメントはこれを横に並べたもので、押すとそ
+// のアクションが走る。`bgHover` は文字色とは別に背景色を hover で変える。2つ
+// のブロックが共有するグリフ用で、文字色は片方のブロック、背景色は隣のブロッ
+// クに従う。
 type Part = {
   text: string
   color?: string
@@ -192,14 +193,14 @@ type Action =
   | { kind: 'set'; which: 'model' | 'effort'; value: string }
   | { kind: 'close' }
   | { kind: 'link'; href: string }
-// `square` keeps a gauge a plain bar, a cell of fill before it, so its
-// fill starts at its first cell and never at a rounded end.
+// `square` のゲージは角丸にせず、前に1マスの空きを置いた素のバーにする。塗り
+// が角丸の端ではなく、必ず1マス目から始まるようにするため。
 type Seg = { key: string; parts: Part[]; action?: Action; square?: boolean }
-// A statusline row: blocks from the left edge, blocks from the right, and
-// the bar's fill between them.
+// ステータスラインの1行。左端からのブロック、右端からのブロック、その間を埋め
+// る余白から成る。
 type Line = { left: Seg[]; right: Seg[] }
 
-// Widths in cells: a code point each, astral glyphs included.
+// 幅はマス数で数える。サロゲートペアのグリフも含めて1コードポイント1マス。
 const cells = (text: string) => [...text].length
 const segWidth = (seg: Seg) => seg.parts.reduce((n, p) => n + cells(p.text), 0)
 const sumWidth = (segs: Seg[]) => segs.reduce((n, x) => n + segWidth(x), 0)
@@ -208,9 +209,9 @@ const block = (text: string, bg: string, color = C.ink, bold = true): Part => ({
 const firstPart = (seg: Seg) => seg.parts[0] ?? { text: '' }
 const lastPart = (seg: Seg) => seg.parts[seg.parts.length - 1] ?? { text: '' }
 
-// A pressed segment's Button inverts under the pointer, its text color
-// becoming its background; the glyphs at its edges are outside the Button, so
-// they join its hover group and take that color with it.
+// 押せるセグメントの Button はポインタの下で反転し、文字色が背景色になる。両
+// 端のグリフは Button の外にあるので、同じ hover グループに入れてその色に追従
+// させる。
 const scopeOf = (seg: Seg) => (seg.action && seg.action.kind !== 'link' ? `sb-${seg.key}` : undefined)
 const edge = (key: string, glyph: string, owner: Seg, part: Part, bg?: string): Seg => {
   const scope = scopeOf(owner)
@@ -219,8 +220,8 @@ const edge = (key: string, glyph: string, owner: Seg, part: Part, bg?: string): 
     parts: [{ text: glyph, color: part.bg, bg, hover: scope ? { scope, color: part.color ?? C.ink } : undefined }],
   }
 }
-// The rounded end between two blocks: `owner`'s color over `under`'s
-// background, each following its own block's hover.
+// 2つのブロックの間の角丸。文字色は `owner` の色、背景は `under` の色で、それ
+// ぞれ自分のブロックの hover に従う。
 const joint = (key: string, glyph: string, owner: Seg, ownerPart: Part, under: Seg | undefined, underPart: Part | undefined): Seg => {
   const scope = scopeOf(owner)
   const underScope = under ? scopeOf(under) : undefined
@@ -238,10 +239,10 @@ const joint = (key: string, glyph: string, owner: Seg, ownerPart: Part, under: S
   }
 }
 
-// Blocks chain through rounded ends while the band is roomy, no gap between
-// them: `| a )b )c )` from the left edge, `( a( b( c |` to the right one, flat
-// at the band's edges; narrow, they sit square side by side.
-// Gauges are square either way, a cell of fill before each.
+// 幅に余裕がある間は、ブロックを隙間なく角丸でつなぐ。左端からは `| a )b )c
+// )`、右端へは `( a( b( c |` の形で、帯の両端は平らにする。狭いときは四角いブ
+// ロックを並べるだけにする。ゲージはどちらの場合も四角で、それぞれの前に1マス
+// の空きを置く。
 const gapSeg = (key: string): Seg => ({ key, parts: [{ text: ' ' }] })
 const leftSide = (segs: Seg[], round: boolean) =>
   !round
@@ -261,17 +262,16 @@ const rightSide = (segs: Seg[], round: boolean) =>
           const open = joint(`(${seg.key}`, I.capL, seg, firstPart(seg), prev, prev && lastPart(prev))
           return [open, seg]
         })
-// The cells a side spends beyond its blocks: one rounded end each, or the
-// gauges' gaps.
+// 片側がブロック以外に使うマス数。ブロックごとの角丸1つずつ、またはゲージ間の
+// 空き。
 const sideEnds = (segs: Seg[], round: boolean) =>
   !round ? segs.filter(x => x.square).length : segs.length
 const lineWidth = (line: Line, round: boolean) =>
   sumWidth(line.left) + sumWidth(line.right) + sideEnds(line.left, round) + sideEnds(line.right, round)
 
-// A filled progress bar with its label and percentage written inside it:
-// the filled cells on the gauge's color, the rest on that color sunk dark.
-// `weight` is its share of the gauges' room: the plan's limits get more than
-// this conversation's context.
+// ラベルと%を中に書いた塗りつぶしのプログレスバー。塗られたマスはゲージの色、
+// 残りはその色を暗く沈めた色。`weight` はゲージ群の幅の中での取り分で、プラン
+// の上限(5h・7d)を会話のコンテキストより多く取る。
 type Gauge = { key: string; icon: string; label: string; short: string; pct: number; base: string; extra: string | null; weight: number }
 
 const MAX_CELLS = 28
@@ -282,11 +282,9 @@ const barText = (label: string, value: string, width: number) =>
 const labelOf = (g: Gauge, level: Level) =>
   `${g.icon} ${level === 'short' ? g.short : level === 'extra' && g.extra ? `${g.label} ${g.extra}` : g.label}`
 
-// How a gauge is drawn, widest first: a bar with the long label and its
-// extra (the reset, the tokens), without the extra, with the short label, the
-// icon and percentage alone, the percentage alone (told apart by its color).
-// Each is measured by the percentage it shows, so a gauge keeps its words
-// while they fit at all.
+// ゲージの描き方。幅の広い順に、長いラベルと補足(リセット・トークン数)付きの
+// バー、補足なし、短いラベル、アイコンと%だけ、%だけ(色で見分ける)。それぞれ
+// 実際に表示する%の文字数で幅を測るので、入る限りラベルを残せる。
 type Level = 'extra' | 'long' | 'short' | 'chip' | 'bare'
 
 const chipText = (g: Gauge) => ` ${g.icon} ${Math.round(g.pct)}% `
@@ -299,16 +297,15 @@ const gaugeWidth = (g: Gauge, level: Level) =>
       ? bareText(g).length
       : barText(labelOf(g, level), `${Math.round(g.pct)}%`, 0).length
 
-// A gauge keeps its own hue until it runs high, then turns red.
+// ゲージは自分の色を保ち、使用量が高くなったら赤に変わる。
 const gaugeColor = (g: Gauge) => (g.pct >= 80 ? C.red : g.base)
 
-// Left-anchored eighths of a cell, for the fill's edge.
+// 塗りの端に使う、左寄せの1/8マス刻みのブロック文字。
 const EIGHTHS = ['▏', '▎', '▍', '▌', '▋', '▊', '▉']
 
-// A gauge is a track with the fill inside it, the label in the gauge's own
-// color over both and the fill paler than the label. The fill ends to the
-// eighth of a cell where its edge falls on a blank, to the cell elsewhere;
-// any use at all shows.
+// ゲージは下地の中に塗りを置いた形で、ラベルは両方の上にゲージ自身の色で書き、
+// 塗りはラベルより薄くする。塗りの端が空白のマスに来たときは1/8マス単位、文字
+// のマスなら1マス単位で止める。少しでも使っていれば必ず見える。
 const gaugeSeg = (g: Gauge, width: number, level: Level): Seg => {
   const color = gaugeColor(g)
   const inner = level === 'chip' ? chipText(g) : level === 'bare' ? bareText(g) : barText(labelOf(g, level), `${Math.round(g.pct)}%`, width)
@@ -335,15 +332,15 @@ const gaugeSeg = (g: Gauge, width: number, level: Level): Seg => {
   return { key: g.key, parts, square: true }
 }
 
-// Lays the gauges into the room given, never past it. Every gauge gets in as
-// its bare percentage before any is left out (the last first, and only
-// when even those do not fit); the room past that is shared by weight, a
-// gauge whose share is under its least keeping its least and the rest
-// sharing what remains; each then takes the widest level its width holds.
+// 与えられた幅にゲージを並べる。幅を超えることはない。どれかを外す前に、まず
+// 全部のゲージを%だけの最小表示で入れる(外すのは後ろからで、最小表示すら入ら
+// ないときだけ)。残りの幅は weight で配り、取り分が最小幅に満たないゲージは最
+// 小幅を取り、残りを他のゲージで分ける。そのうえで各ゲージは、自分の幅に収ま
+// る一番広い表示段階を選ぶ。
 export const fitGauges = (all: Gauge[], room: number): Seg[] => {
   for (let n = all.length; n > 0; n--) {
     const gauges = all.slice(0, n)
-    // Each gauge brings the gap before it.
+    // ゲージはそれぞれ前に空き1マスを伴う。
     const free = room - n
     const least = gauges.map(g => gaugeWidth(g, 'bare'))
     if (least.reduce((a, b) => a + b, 0) > free) continue
@@ -368,8 +365,7 @@ export const fitGauges = (all: Gauge[], room: number): Seg[] => {
   return []
 }
 
-// Packs segments into rows of at most `width`, a segment that does not fit
-// starting the next row.
+// セグメントを最大 `width` の行に詰める。入りきらないセグメントは次の行に回す。
 const GAP = 1
 const wrap = (segs: Seg[], width: number): Seg[][] => {
   const rows: Seg[][] = []
@@ -388,7 +384,7 @@ const wrap = (segs: Seg[], width: number): Seg[][] => {
   return rows
 }
 
-// The gauges, the plan's usage first, then this conversation's.
+// ゲージ群。プランの使用量(5h・7d)を先に、この会話の分(ctx・ac)を後に並べる。
 const gaugesOf = (s: Snap): Gauge[] => {
   const gauges: Gauge[] = []
   for (const kind of ['five_hour', 'seven_day']) {
@@ -407,26 +403,26 @@ const gaugesOf = (s: Snap): Gauge[] => {
 
 let prTick = 0
 
-// Back to the band as it first draws: no drawer, no picker.
+// 帯を最初の状態に戻す。一覧もピッカーも閉じる。
 async function resetView($: any) {
   await update($, view, v => ({ ...v, drawer: null }))
   await update($, picker, () => null)
 }
 
-// resetView, writing only when something is open.
+// 何か開いているときだけ書き込む resetView。
 async function closeAll($: any) {
   if ((await read($, view)).drawer !== null || (await read($, picker)) !== null) await resetView($)
 }
 
-// The effort in force, kept for the next session so the band shows it before
-// that session's first turn reports one.
+// 今の effort。次のセッション用に保存しておき、そのセッションの最初のターンで
+// 値が届く前から帯に出せるようにする。
 async function setEffort($: any, effort: string | null) {
   await update($, snap, (s: Snap) => ({ ...s, effort }))
   if (effort !== null) await $.store.set(EFFORT_STORE_KEY, effort)
 }
 
-// The effort a run of /effort set: its argument, or the level its answer
-// names when it was picked from the command's menu.
+// /effort の実行で設定された effort。引数か、コマンドのメニューから選んだ場合
+// は出力に書かれたレベル。
 const effortOfRun = (args: string, text: string | undefined) => {
   const arg = args.trim().toLowerCase()
   if (EFFORTS.includes(arg)) return arg
@@ -434,12 +430,12 @@ const effortOfRun = (args: string, text: string | undefined) => {
   return said && EFFORTS.includes(said) ? said : null
 }
 
-// Switches the model or effort as the person would by typing the command; the
-// band shows the new one at once and the next turn confirms it.
+// コマンドを打つのと同じ方法で model や effort を切り替える。帯にはすぐ反映し、
+// 次のターンで確定する。
 async function apply($: any, which: 'model' | 'effort', value: string) {
   await update($, picker, () => null)
-  // The command waits for the turn to end; the band shows the choice now and
-  // takes it back if the command fails.
+  // コマンドはターンが終わるまで待たされる。帯には選んだ値をすぐ出し、コマン
+  // ドが失敗したら元に戻す。
   const before = await read($, snap)
   if (which === 'effort') await setEffort($, value)
   else await update($, snap, (s: Snap) => ({ ...s, model: value }))
@@ -458,16 +454,16 @@ async function loadModelOptions($: any) {
     const options = (row?.options ?? []).filter((o: string) => o && o.toLowerCase() !== 'default')
     if (options.length > 0) await update($, snap, (s: Snap) => ({ ...s, modelOptions: options }))
   } catch {
-    // Keep the aliases.
+    // エイリアスのままにする。
   }
 }
 
-// Worktrees kept inside the project, under its own .claude/worktrees (or
-// .claude/worktree), as `git worktree list` knows them.
+// プロジェクト内(そのプロジェクトの .claude/worktrees か .claude/worktree の
+// 下)に置かれた worktree を、`git worktree list` の情報から拾う。
 const PROJECT_WORKTREE = /^\/\.claude\/worktrees?\//
 
-// One refresh at a time: one asked for while another runs is run once after
-// it, so a slow one never lands over a newer one.
+// refresh は同時に1つだけ。実行中に頼まれた分は終わった後に1回だけ走らせる。
+// 遅い実行が新しい結果を上書きしないようにするため。
 let refreshing: Promise<void> | null = null
 let refreshAgain = false
 
@@ -503,14 +499,15 @@ async function refreshOnce($: any) {
   const status = branch !== null ? await git(['status', '--porcelain']) : null
   const changes = status ? status.split('\n').filter(l => l !== '').length : 0
   const dirty = changes > 0
-  // Commits to push and to pull against the upstream, when there is one.
+  // upstream があるとき、push 待ちと pull 待ちのコミット数。
   const counts = branch !== null ? await git(['rev-list', '--left-right', '--count', '@{upstream}...HEAD']) : null
   const [behind, ahead] = (counts ?? '0 0').split(/\s+/).map(n => Number(n) || 0)
 
   const worktrees: Worktree[] = []
   if (branch !== null) {
     const top = await git(['rev-parse', '--show-toplevel'])
-    // The main checkout, whichever worktree the session runs in.
+    // セッションがどの worktree で動いていても、メインのチェックアウトを基準
+    // にする。
     const common = await git(['rev-parse', '--path-format=absolute', '--git-common-dir'])
     const main = common ? common.replace(/\/\.git\/?$/, '') : top
     for (const chunk of ((await git(['worktree', 'list', '--porcelain'])) ?? '').split('\n\n')) {
@@ -528,9 +525,9 @@ async function refreshOnce($: any) {
     agents = []
   }
 
-  // The PR is asked for once a minute, and at once when the branch changes,
-  // the old one cleared; a failed ask (network, auth) keeps what was shown,
-  // while gh saying there is no PR clears it.
+  // PR は1分に1回取り直す。ブランチが変わったときは古い PR を消してすぐ取り直
+  // す。取得の失敗(ネットワーク・認証)では表示中の PR を残し、gh が「PR が無
+  // い」と答えたときだけ消す。
   let prPatch = {}
   const branchChanged = branch !== (await read($, snap)).branch
   if (branchChanged) prPatch = { pr: null }
@@ -545,14 +542,14 @@ async function refreshOnce($: any) {
         prPatch = { pr: null }
       }
     } catch {
-      // Keep the PR shown.
+      // 表示中の PR を残す。
     }
   }
 
   const usage = await $.session.usage()
   const c = usage.context
-  // Before the first response nothing is counted yet: an empty window, not
-  // an unknown one, so the gauges show from the session's start.
+  // 最初の応答が来るまでは何も数えられていない。不明ではなく「空」として扱い、
+  // セッション開始直後からゲージを出す。
   const tokens = c.window > 0 ? (c.tokens ?? 0) : undefined
   const ac = tokens !== undefined ? Math.min(100, (tokens / (c.window * 0.95)) * 100) : null
   const model = await $.session.model()
@@ -579,11 +576,11 @@ async function refreshOnce($: any) {
 let home = ''
 let timer: { cancel: () => void } | null = null
 
-// An effort level the band draws, or null for anything else (a numeric
-// budget, a value from an older version).
+// 帯で描ける effort レベル。それ以外(数値のバジェット、古い版で保存された値)
+// は null。
 const effortOf = (x: unknown) => (typeof x === 'string' && EFFORTS.includes(x) ? x : null)
 
-// Whether a drawing shows nothing: no text in it anywhere.
+// 描画が何も表示しないか。中のどこにも文字が無いか。
 const isBlank = (el: any): boolean => {
   if (el === null || el === undefined || el === false) return true
   if (typeof el === 'string') return el.trim() === ''
@@ -593,11 +590,11 @@ const isBlank = (el: any): boolean => {
   return (Array.isArray(children) ? children : [children]).every(isBlank)
 }
 
-// The band's id, where the focus ring for the pickers' arrows lives.
+// 帯の id。ピッカーを矢印キーで動かすためのフォーカスリングがここにある。
 let aboveId: string | null = null
 
-// Draws the band: the open list, if any, over the status rows. Null draws
-// nothing, before a model is known.
+// 帯を描く。開いている一覧があればステータス行の上に出す。モデルが分かる前は
+// null を返して何も描かない。
 async function drawBand($: any, e: any) {
     const s = await read($, snap)
     if (s.model === '') return null
@@ -605,16 +602,16 @@ async function drawBand($: any, e: any) {
     const open = await read($, picker)
     const { Box, Text, Button, Link } = $.ui.resolve(e)
 
-    // One column kept free so the last block never wraps; the roomy band
-    // also keeps a margin on its left.
+    // 最後のブロックが折り返さないよう1マス空けておく。幅に余裕のある帯は左に
+    // も余白を取る。
     const MARGIN = 1
     const fullWidth = Math.max(20, e.props.bodyColumns - 1)
     const effortBg = s.effort ? (effortColor[s.effort] ?? C.claude) : C.block
 
-    // Row 1, like vim's mode block: the model, the effort and its level, then
-    // the worktree and agent buttons on the right, one row at any width.
-    // The model's name: whole with its context size, whole, or as its
-    // initial and version once room runs short.
+    // 1行目は vim のモード表示のように、model、effort、右側に worktree・エー
+    // ジェントのボタンを並べる。どの幅でも1行に収める。model 名はコンテキスト
+    // サイズ付き、名前だけ、幅が足りなくなったら頭文字とバージョン、の順に縮
+    // める。
     const modelSeg = (form: 'ctx' | 'name' | 'short', withIcon: boolean): Seg => ({
       key: 'model',
       parts: [
@@ -625,9 +622,9 @@ async function drawBand($: any, e: any) {
       ],
       action: { kind: 'pick', which: 'model' },
     })
-    // One run of one color, so the Button inverts it whole.
-    // 5h and 7d the hint line could not fit, as bare percentages beside the
-    // effort, so the plan's usage is always in sight.
+    // 1色のひと続きにして、Button が丸ごと反転するようにする。ヒント行に入り
+    // きらなかった 5h・7d は effort の横に%だけで出し、プランの使用量が常に見
+    // えるようにする。
     const spare: Seg[] = gaugesOf(s)
       .filter(g => hintMissing.includes(g.key))
       .map(g => ({ key: `spare-${g.key}`, parts: [block(bareText(g), gaugeColor(g))] }))
@@ -638,7 +635,7 @@ async function drawBand($: any, e: any) {
     })
 
 
-    // The picker, under row 1 while open; the one part of the band that wraps.
+    // ピッカー。開いている間は1行目の下に出す。帯の中で唯一折り返す部分。
     const pickerRows: Seg[][] = []
     if (open) {
       const options = open === 'model' ? s.modelOptions : EFFORTS
@@ -656,8 +653,7 @@ async function drawBand($: any, e: any) {
       pickerRows.push(...wrap(picks, fullWidth))
     }
 
-    // Row 2: where the session works: the path, the branch and its state, the
-    // PR, and on the right the gauges.
+    // 2行目はセッションの作業場所。パス、ブランチとその状態、PR を並べる。
     const running = s.agents.filter(a => a.status === 'running' || a.status === 'pending' || a.status === 'waiting').length
     const wtSeg: Seg = {
       key: 'wt',
@@ -666,21 +662,21 @@ async function drawBand($: any, e: any) {
     }
     const agSeg: Seg = {
       key: 'ag',
-      // Green while an agent runs; the counts are in the drawer.
+      // エージェントが動いている間は緑。件数は一覧の中で見る。
       parts: [block(` ${I.robot} `, running > 0 ? C.green : C.lavender)],
       action: { kind: 'drawer', which: 'agents' },
     }
-    // Switches between the full band and one row of it.
+    // 帯の全体表示と1行表示を切り替える。
     const compactSeg: Seg = {
       key: 'compact',
       parts: [block(` ${v.compact ? I.expand : I.compress} `, C.block, C.text)],
       action: { kind: 'compact' },
     }
-    // The path on a neutral slate: every hue is taken by a model or an
-    // effort, which sit just above it.
+    // パスは無彩色のグレーにする。色相はすべて、すぐ上に並ぶ model と effort
+    // が使っているため。
     const pathSeg = (path: string): Seg => ({ key: 'cwd', parts: [block(` ${I.folder} ${path} `, PATH_BG, C.text)] })
-    // The branch, then what it has to push (↑), to pull (↓) and left
-    // uncommitted (±), each only while there is some; ✓ when all is clean.
+    // ブランチ名の後ろに、push 待ち(↑)、pull 待ち(↓)、未コミット(±)を、あるも
+    // のだけ出す。すべてきれいなら ✓。
     const branchSeg = (name: string): Seg => {
       const tint = s.dirty ? C.yellow : C.green
       const counts: Part[] = []
@@ -709,16 +705,15 @@ async function drawBand($: any, e: any) {
       ...(branch === null ? [] : [branchSeg(branch)]),
       ...(withPr ? [prSeg(title)] : []),
     ]
-    // The band as wide as it can be drawn: roomy (a margin, rounded ends) while
-    // everything fits whole, else narrow (square, no margin).
+    // 描ける最大の帯。全部がそのまま収まる間は広い表示(余白と角丸あり)、そう
+    // でなければ狭い表示(四角、余白なし)にする。
     const layout = (round: boolean) => {
       const width = round ? fullWidth - MARGIN : fullWidth
-      // The left side gives up the model's context size, then its name for
-      // its initial, then its icons.
+      // 左側は、model のコンテキストサイズ、名前の頭文字化、アイコンの順に手
+      // 放す。
       let line1: Line = { left: [], right: [] }
       let full = false
-      // At the very narrowest the drawer buttons go too; the compact switch
-      // stays at the right end.
+      // 一番狭いときはドロワーのボタンも外す。コンパクト切替は右端に残す。
       const tries1 = [
         ['ctx', true, true],
         ['name', true, true],
@@ -733,15 +728,15 @@ async function drawBand($: any, e: any) {
           break
         }
       }
-      // Row 2: the branch's name past twelve letters gives way first, then
-      // the PR's title, then the path, cut at its start.
+      // 2行目では、12文字を超えるブランチ名から先に縮め、次に PR タイトル、最
+      // 後にパスを先頭側から切る。
       const MIN_PATH = 14
       const bare = (branch: string | null) => lineWidth({ left: left2('', branch, null), right: [] }, round)
       let branch = s.branch
       if (width - bare(branch) - 1 < MIN_PATH && branch !== null && branch.length > 12) {
         branch = cut(branch, Math.max(12, branch.length - (MIN_PATH - (width - bare(branch) - 1))))
       }
-      // Too narrow for six columns of path, the PR gives way.
+      // パスに6マスも取れないほど狭いときは、PR を外す。
       const withPr = width - bare(branch) - 1 >= 6
       const room = width - lineWidth({ left: left2('', branch, null, withPr), right: [] }, round) - 1
       const fullPath = shortenPath(s.cwd, home, Infinity)
@@ -752,10 +747,10 @@ async function drawBand($: any, e: any) {
       const fits = full && pathLen === fullPath.length
       return { round, width, line1, line2, fits }
     }
-    // Compact: everything on one row, square, the switch back fixed at the
-    // right end as in the full band. As room runs short the model goes to its
-    // initial, the icons and the branch's length go, then the PR, the branch,
-    // the drawer buttons, and last the path, so the switch always shows.
+    // コンパクト表示。全部を1行に四角いブロックで並べ、元に戻す切替は全体表示
+    // と同じく右端に固定する。幅が足りなくなるにつれて、model を頭文字に、ア
+    // イコンとブランチ名の長さ、PR、ブランチ、ドロワーのボタン、最後にパスの
+    // 順に削り、切替が常に見えるようにする。
     const single = (): Line => {
       const MIN_PATH = 6
       const tries = [
@@ -790,7 +785,7 @@ async function drawBand($: any, e: any) {
         : layout(false)
 
     const press = (a: Action) => async () => {
-      // One list open at a time: opening one closes whatever else was open.
+      // 一覧は同時に1つだけ開く。1つ開くと、ほかに開いていたものは閉じる。
       if (a.kind === 'drawer') {
         await update($, picker, () => null)
         return update($, view, x => ({ ...x, drawer: x.drawer === a.which ? null : a.which }))
@@ -799,8 +794,8 @@ async function drawBand($: any, e: any) {
         await update($, view, x => ({ ...x, drawer: null }))
         const opening = (await read($, picker)) !== a.which
         await update($, picker, () => (opening ? a.which : null))
-        // The ring starts on the option in force, so the arrows move from it
-        // and Enter picks; the band holds the keys since the press.
+        // フォーカスリングは今の選択肢から始める。矢印キーでそこから動かし、
+        // Enter で決定する。押した時点で帯がキー入力を受け取っている。
         if (opening) {
           const options = a.which === 'model' ? s.modelOptions : EFFORTS
           const current = options.find(o => (a.which === 'model' ? isCurrentModel(o, s.model) : o === s.effort)) ?? options[0]
@@ -809,8 +804,8 @@ async function drawBand($: any, e: any) {
         return
       }
       if (a.kind === 'compact') {
-        // From the view as it is now, not as this drawing saw it, so quick
-        // presses each toggle.
+        // この描画が見た値ではなく、今の view から反転させる。素早く連打して
+        // もそれぞれ切り替わるようにするため。
         const compact = !(await read($, view)).compact
         await update($, view, x => ({ ...x, compact }))
         return $.store.set(COMPACT_STORE_KEY, compact)
@@ -821,9 +816,10 @@ async function drawBand($: any, e: any) {
 
     const texts = (key: string, parts: Part[]) =>
       parts.filter(p => p.text !== '').map((p, j) =>
-        // A block's end follows its Button's hover but must not light it: a
-        // Text nested in a Text follows its group without heating it, so the
-        // pointer on the end alone changes nothing, as on the Button's edge.
+        // ブロックの端は Button の hover に追従するが、自分から点灯させてはい
+        // けない。Text の中に入れた Text はグループに追従するだけで点灯させな
+        // いので、端だけにポインタを乗せても何も変わらない(Button の縁に乗っ
+        // たときと同じ)。
         p.bgHover ? (
           <Text key={`${key}${j}`}>
             <Text color={p.color} hover={p.hover}>
@@ -872,8 +868,9 @@ async function drawBand($: any, e: any) {
       </Box>
     )
 
-    // The drawers: worktrees and subagents, one row each, each on its button.
-    // Each row is pressed to close its drawer, like a click anywhere else.
+    // ドロワー。worktree とサブエージェントを、それぞれのボタンで1行ずつ一覧
+    // 表示する。どの行を押してもドロワーは閉じる(他の場所をクリックしたときと
+    // 同じ)。
     const row = (key: string, parts: Part[]) => (
       <Box key={key}>
         <Button key={`${key}-b`} plain onPress={() => resetView($)}>
@@ -918,8 +915,8 @@ async function drawBand($: any, e: any) {
         ]
       : []
 
-    // The open list sits above the band, a row of space between, so the
-    // status rows stay where they are.
+    // 開いている一覧は帯の上に、1行空けて出す。ステータス行の位置が動かないよ
+    // うにするため。
     const lists = [
       ...pickerRows.map((row, i) => (
         <Box key={`p${i}`} columnGap={GAP}>
@@ -942,11 +939,10 @@ async function drawBand($: any, e: any) {
     )
 }
 
-// The gauges, on the hint line under the prompt: beside the engine's mode
-// pill (`⏵⏵ auto mode on`), which it keeps to the left of a hook's tree, with
-// the rest of the hint before them.
-// The plan's gauges the hint line had no room for, as it last drew: the band
-// above the prompt shows them so they never go out of sight.
+// プロンプト下のヒント行に描くゲージ。本体はモード表示(`⏵⏵ auto mode on`)をフ
+// ックの描画の左に残すので、その右にヒント文の残り、さらにゲージを並べる。ヒ
+// ント行に入りきらなかったプランのゲージ(最後に描いたときのもの)は、プロンプ
+// ト上の帯が代わりに出し、見えなくならないようにする。
 let hintMissing: string[] = []
 
 async function drawHint($: any, e: any) {
@@ -959,14 +955,13 @@ async function drawHint($: any, e: any) {
   }
   const { Box, Text } = $.ui.resolve(e)
   const hint: string = e.props.hint ?? ''
-  // The hint's two leading columns, the pill's while a mode is on (its hint
-  // then reads `(shift+tab to cycle)`), and one kept free.
+  // ヒント行の先頭2マス、モード表示中はその分(このときヒント文は `(shift+tab
+  // to cycle)` を含む)、それと1マスの余裕を差し引く。
   const pill = /shift\+tab to cycle/.test(hint) ? 18 : 0
   const width = Math.max(20, (e.viewport?.columns ?? 100) - 2 - pill - 1)
-  // The gauges take at most half the line, the hint what they leave, cut at
-  // its end; where that drops a gauge, the hint gives way and the gauges take
-  // the whole line. 5h and 7d go last of all; any still left out the band
-  // above the prompt shows instead.
+  // ゲージは行の半分まで使い、ヒント文は残りに入れて末尾を切る。それでゲージ
+  // が1本でも落ちる場合は、ヒント文を消してゲージに行全体を使わせる。5h と 7d
+  // は最後まで残し、それでも入らない分はプロンプト上の帯が代わりに出す。
   const roomy = fitGauges(gauges, Math.min(Math.floor(width / 2), width - Math.min(hint.length, 12) - 1))
   const all = roomy.length === gauges.length
   const segs = all ? roomy : fitGauges(gauges, width)
@@ -993,8 +988,8 @@ async function drawHint($: any, e: any) {
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
-    // Each step on its own, so one failing (no HOME, an unreadable store)
-    // never keeps the timer from starting.
+    // 各処理を独立させる。どれかが失敗しても(HOME が無い、ストアが読めない)タ
+    // イマーは必ず起動させる。
     try {
       home = (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout
     } catch {
@@ -1005,10 +1000,10 @@ export const register: Register = on => {
       const effort = effortOf((await $.store.get(EFFORT_STORE_KEY)) as unknown)
       if (effort) await update($, snap, (s: Snap) => (s.effort === null ? { ...s, effort } : s))
     } catch {
-      // Start from the defaults.
+      // 既定の状態から始める。
     }
     void loadModelOptions($)
-    // A reload or re-enable starts the session again: the old timer goes.
+    // 再読み込みや再有効化でセッション開始が再び走る。古いタイマーは止める。
     timer?.cancel()
     timer = $.clock.every(5000, () => void refresh($).catch(() => undefined))
     void refresh($).catch(() => undefined)
@@ -1021,11 +1016,12 @@ export const register: Register = on => {
   })
 
   on('turn.step', async function* ($, e, next) {
-    // A subagent's step speaks of its own model and effort, not the session's.
+    // サブエージェントのステップは、セッションではなくそのエージェント自身の
+    // model と effort を表す。
     if (!e.agentId) {
       await update($, snap, (s: Snap) => ({ ...s, model: e.model }))
-      // A level the band knows; a model without effort (none sent) or a
-      // numeric budget leaves the band without one rather than a stale one.
+      // 帯で扱えるレベルだけ採る。effort の無いモデル(値が送られない)や数値の
+      // バジェットのときは、古い値を残さず effort なしにする。
       await update($, snap, (s: Snap) => ({ ...s, effort: effortOf(e.effort) }))
       const effort = effortOf(e.effort)
       if (effort) await $.store.set(EFFORT_STORE_KEY, effort)
@@ -1033,7 +1029,7 @@ export const register: Register = on => {
     return yield* next(e)
   })
 
-  // /effort, typed or picked from its menu, shows at once.
+  // /effort は、打った場合もメニューから選んだ場合も、すぐ帯に反映する。
   on('command.run', async ($, e, next) => {
     const r = await next(e)
     if (e.command === 'effort') {
@@ -1043,8 +1039,8 @@ export const register: Register = on => {
     return r
   })
 
-  // A click elsewhere in the shell raises nothing a plugin hears; typing in
-  // the prompt or sending it is the sign the person has moved on.
+  // シェルの別の場所をクリックしても、プラグインに届くイベントは無い。プロン
+  // プトへの入力や送信を「別の操作に移った」合図とみなす。
   on('prompt.edit', async ($, e, next) => {
     await closeAll($)
     return next(e)
@@ -1054,20 +1050,20 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The band is pressed with the pointer; the ring is for the picker alone.
+  // 帯はポインタで操作する。フォーカスリングはピッカー専用。
   on('ui.focus', async ($, e, next) => {
     if (e.component !== 'AbovePrompt') return next(e)
-    // A click on the band off its buttons puts it back as it first draws.
+    // 帯のボタン以外の部分をクリックしたら、最初の状態に戻す。
     if (!e.element || e.plugin !== 'statusbar') await resetView($)
-    // Only the picker's options take the ring, for the arrow keys; elsewhere
-    // a ring would leave a block drawn inverted after a click.
+    // 矢印キー用にフォーカスリングを受け取るのはピッカーの選択肢だけ。それ以
+    // 外で受け取ると、クリックの後にブロックが反転したまま残ってしまう。
     if (e.plugin === 'statusbar' && !e.element?.startsWith('pick-')) return { deny: 'statusbar takes no focus' }
     return next(e)
   })
 
-  // Who speaks, told by a gutter down the left side: Claude's own color on
-  // its replies; the person's prompts also take a faint wash of theirs. A
-  // warm wash under Claude's read as a warning, so it has none.
+  // 発言者を左の縦線で示す。Claude の返答は Claude の色、ユーザーのプロンプト
+  // はその色に加えて薄い背景も付ける。Claude 側に暖色の背景を敷くと警告に見え
+  // たので、背景は付けない。
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.props.origin.kind !== 'composer') return next(e)
     const { Box, Text } = $.ui.resolve(e)
@@ -1088,8 +1084,8 @@ export const register: Register = on => {
     )
   })
 
-  // The band, under whatever the hooks beneath draw (another mod's list, as
-  // the file picker's), so neither hides the other.
+  // 帯は下位のフックの描画(ファイルピッカーなど他の mod の一覧)の下に置き、互
+  // いに隠さないようにする。
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     aboveId = e.requestId

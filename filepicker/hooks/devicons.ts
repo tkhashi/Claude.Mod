@@ -1,7 +1,7 @@
-// Generated from nvim-web-devicons (MIT License, Copyright (c) 2023 nvim-tree,
-// https://github.com/nvim-tree/nvim-web-devicons): its default icons by file
-// name and by extension, each as [glyph, color]; the glyphs the installed
-// Symbols Nerd Font lacks are left out.
+// nvim-web-devicons(MIT License、Copyright (c) 2023 nvim-tree、
+// https://github.com/nvim-tree/nvim-web-devicons)から生成した、ファイル名別・
+// 拡張子別の既定アイコン。それぞれ [グリフ, 色]。インストール済みの Symbols
+// Nerd Font に無いグリフは除いてある。
 export const DEVICONS_BY_NAME: Record<string, readonly [string, string]> = {
   ".SRCINFO": ['\u{f08c7}', '#0f94d2'],
   ".Xauthority": ['\uf369', '#e54d18'],

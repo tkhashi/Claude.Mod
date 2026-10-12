@@ -3,7 +3,8 @@ import type { On } from 'claude-code'
 
 import { fitGauges } from './register'
 
-// The engine beneath the plugin: its own drawings, a model step, the store and clock.
+// プラグインの下にあるエンジン部分。本体の描画、モデルのステップ、ストア、時
+// 計。
 const engine = (on: On, ran: { command: string; args: string }[] = []) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -26,7 +27,7 @@ const engine = (on: On, ran: { command: string; args: string }[] = []) => {
 
 const step = async ($: any, model: string, effort: string) => {
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model, effort, messageCount: 1 })) {
-    // drain
+    // 読み捨てる。
   }
 }
 

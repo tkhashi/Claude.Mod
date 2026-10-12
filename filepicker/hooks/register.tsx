@@ -4,10 +4,10 @@ import type { Register } from 'claude-code'
 import type { Browser, Entry, Kind, Sort } from '../types'
 import { DEVICONS_BY_EXT, DEVICONS_BY_NAME } from './devicons'
 
-// Closed, as the browser starts; the order chosen is kept across openings.
+// 閉じた状態(ブラウザの初期状態)。選んだ並び順は、開き直しても引き継ぐ。
 const closed: Browser = { active: false, dir: '', filter: '', entries: [], error: null, page: 0, sort: 'mtime', kind: 'all', ext: null, preview: false }
 
-// How each order asks `ls`: newest first, by name, largest first.
+// 各並び順の `ls` への頼み方。新しい順、名前順、大きい順。
 const SORTS: { sort: Sort; icon: string; label: string; flags: string }[] = [
   { sort: 'mtime', icon: '\uf017', label: 'Modified', flags: '-1Apt' },
   { sort: 'name', icon: '\uf15d', label: 'Name', flags: '-1Ap' },
@@ -18,14 +18,14 @@ const KINDS: { kind: Kind; icon: string; label: string }[] = [
   { kind: 'dirs', icon: '\uf07b', label: 'Folders' },
   { kind: 'files', icon: '\uf15b', label: 'Files' },
 ]
-// Under this many columns the picker writes its controls as icons alone and
-// cuts its breadcrumbs short.
+// これより狭いと、ピッカーは操作ボタンをアイコンだけにし、パンくずを途中で省
+// 略する。
 const NARROW = 70
-// How many of a folder's extensions get a button, the commonest first.
+// フォルダ内の拡張子のうち、ボタンを出す数。多いものから。
 const MAX_EXTS = 6
 const browser = atom({ plugin: 'filepicker', key: 'browser' } as const, closed)
 
-// The statusbar's palette (Catppuccin Mocha), so the two read as one band.
+// statusbar と同じパレット(Catppuccin Mocha)。2つが1つの帯に見えるようにする。
 const C = {
   ink: '#1e1e2e',
   text: '#cdd6f4',
@@ -42,9 +42,9 @@ const C = {
   sky: '#89dceb',
 }
 
-// A file's icon and color by its type, as editors' file trees draw them
-// (nvim-web-devicons' glyphs, in this palette). Whole names first, then the
-// extension; anything else is a plain file.
+// ファイルの種類ごとのアイコンと色。エディタのファイルツリーと同じ見た目
+// (nvim-web-devicons のグリフ、色はこのパレット)。ファイル名全体で先に引き、
+// 次に拡張子で引く。どれにも当たらなければ普通のファイル。
 type Style = { icon: string; color: string }
 const BY_EXT: Record<string, Style> = {
   ts: { icon: '\ue628', color: C.blue },
@@ -146,8 +146,7 @@ const BY_NAME: Record<string, Style> = {
 }
 const PLAIN: Style = { icon: '\uf15b', color: C.text }
 
-// A devicons color kept legible on the dark band: one too dark is lifted
-// toward white.
+// devicons の色を暗い帯でも読めるようにする。暗すぎる色は白寄りに明るくする。
 const legible = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
   const light = (0.2126 * r! + 0.7152 * g! + 0.0722 * b!) / 255
@@ -158,12 +157,13 @@ const legible = (hex: string) => {
 const fromDevicons = (entry: readonly [string, string] | undefined): Style | null =>
   entry ? { icon: entry[0], color: legible(entry[1]) } : null
 
-// A table's own entry, never one Object's prototype lends (`constructor`).
+// 表そのものが持つエントリだけを返す。Object のプロトタイプ由来のもの
+// (`constructor` など)は返さない。
 const own = <T,>(table: Record<string, T>, key: string): T | undefined => (Object.hasOwn(table, key) ? table[key] : undefined)
 
-// nvim-web-devicons first, by whole name, then by the longest dotted ending
-// (`d.ts` before `ts`); where it has nothing, or a glyph this font lacks, the
-// table above; else a plain file.
+// まず nvim-web-devicons をファイル名全体で、次にドット区切りの長い語尾から
+// (`ts` より先に `d.ts`)引く。そこに無いか、このフォントに無いグリフなら上の
+// 表を使う。それも無ければ普通のファイル。
 export const styleOf = (name: string): Style => {
   const lower = name.toLowerCase()
   const whole = fromDevicons(own(DEVICONS_BY_NAME, name) ?? own(DEVICONS_BY_NAME, lower)) ?? own(BY_NAME, lower)
@@ -192,21 +192,20 @@ const I = {
   next: '\uf054',
 }
 
-// How many rows of entries a page holds: as many as the band leaves room
-// for, past the frame, its header rows and the status band under it, within
-// these bounds; and how wide an entry's name may run.
+// 1ページに入る項目の行数。枠、見出し行、下のステータス帯の分を除いて帯に残る
+// 高さだけ、この範囲内で取る。あわせて項目名の最大幅。
 const MIN_ROWS = 6
 const MAX_ROWS = 16
 const CHROME_ROWS = 14
 const MAX_CELL = 36
 
-// The `@` mention the caret stands in, if any, read whole: from its `@` to
-// the next blank, wherever in it the caret is, so the folder shown is the
-// one the text names, as the engine's own suggestions read it.
+// キャレットがある `@` メンションを丸ごと読む。`@` から次の空白まで、キャレッ
+// トがどこにあっても同じに読むので、表示するフォルダは本体の候補と同じく、書
+// かれている文字列のとおりになる。
 export const mentionAt = (text: string, cursor: number) => {
   const before = text.slice(0, cursor)
-  // Quoted, as the engine writes a path with blanks (`@"My Docs/a.txt"`):
-  // from `@"` to its closing quote, the caret inside or just past it.
+  // 引用符付き。本体は空白を含むパスをこの形で書く(`@"My Docs/a.txt"`)。`@"`
+  // から閉じ引用符まで、キャレットはその中か直後にある。
   const q = /(?:^|\s)(@"[^"]*"?)$/.exec(before)
   if (q) {
     const start = cursor - (q[1] ?? '').length
@@ -222,11 +221,11 @@ export const mentionAt = (text: string, cursor: number) => {
   return { start, end, query: text.slice(start + 1, end) }
 }
 
-// A path as a mention, quoted when it holds a blank, as the engine reads it.
+// パスをメンションの形にする。空白を含むときは、本体が読める引用符付きにする。
 export const mentionOf = (path: string) => (/\s/.test(path) ? `@"${path}"` : `@${path}`)
 
-// How many columns a character takes: two for the wide scripts (CJK, kana,
-// hangul, fullwidth forms) and emoji, none for a combining mark, one otherwise.
+// 1文字が使う幅。幅広の文字(CJK、かな、ハングル、全角形)と絵文字は2、結合文字
+// は0、それ以外は1。
 const charWidth = (ch: string) => {
   const c = ch.codePointAt(0) ?? 0
   if ((c >= 0x300 && c <= 0x36f) || (c >= 0x3099 && c <= 0x309a) || c === 0x200d || (c >= 0xfe00 && c <= 0xfe0f)) return 0
@@ -248,7 +247,8 @@ const charWidth = (ch: string) => {
 }
 export const textWidth = (text: string) => [...text].reduce((n, ch) => n + charWidth(ch), 0)
 
-// A label laid in exactly `cells` columns: padded, or cut with `…`.
+// ラベルをちょうど `cells` マスに収める。足りなければ空白で埋め、長ければ `…`
+// で切る。
 export const fitCells = (label: string, cells: number) => {
   if (textWidth(label) <= cells) return label + ' '.repeat(cells - textWidth(label))
   let out = ''
@@ -259,22 +259,21 @@ export const fitCells = (label: string, cells: number) => {
   return out + '…' + ' '.repeat(Math.max(0, cells - 1 - textWidth(out)))
 }
 
-// A mention's folder (through its last `/`) and the name being typed in it.
+// メンションのフォルダ部分(最後の `/` まで)と、そこで打っている途中の名前。
 export const splitQuery = (query: string) => {
   const slash = query.lastIndexOf('/')
   return { dir: query.slice(0, slash + 1), filter: query.slice(slash + 1) }
 }
 
-// The folder a mention names, as a path `ls` takes: relative to the session's
-// directory, or from the home directory or the root as written.
+// メンションが指すフォルダを `ls` に渡すパスにする。セッションのディレクトリ
+// からの相対、または書かれたとおりホームかルートから。
 export const resolveDir = (dir: string, cwd: string, home: string) =>
   dir.startsWith('/') ? dir : dir.startsWith('~/') ? `${home}${dir.slice(1)}` : dir === '' ? cwd : `${cwd}/${dir}`
 
-// Folders first, then files, each by name as people sort them.
+// フォルダを先に、次にファイル。それぞれ人が並べるような名前順。
 const byKind = (a: Entry, b: Entry) => (a.dir === b.dir ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) : a.dir ? -1 : 1)
 
-// The entries the name typed so far picks: those it begins first, then those
-// it appears in.
+// 打った文字で選ぶ項目。その文字で始まるものを先に、含むものを後に並べる。
 export const matching = (entries: Entry[], filter: string) => {
   const f = filter.toLowerCase()
   if (f === '') return entries
@@ -284,13 +283,14 @@ export const matching = (entries: Entry[], filter: string) => {
 }
 
 let home = ''
-// The session's directory, as it started; asked again where it is unknown.
+// 開始時のセッションのディレクトリ。分からないときは改めて問い合わせる。
 let sessionCwd = ''
-// The folder last listed, so typing a name in it lists nothing again.
+// 最後に一覧を取ったフォルダ。同じフォルダで名前を打っている間は取り直さない。
 let listed: string | null = null
-// The draft as the last edit left it, should the box not answer a read.
+// 直前の編集で残ったプロンプトの中身。プロンプトの読み取りに応答が無いときに
+// 使う。
 let lastBox = { text: '', cursor: 0 }
-// The draft's re-read, one at a time across the session starting again.
+// プロンプトの読み直し。セッション開始が再び走っても1つだけにする。
 let recheckTimer: { cancel: () => void } | null = null
 
 async function list($: any, dir: string) {
@@ -308,8 +308,8 @@ async function list($: any, dir: string) {
       .split('\n')
       .filter(line => line !== '')
       .map(line => (line.endsWith('/') ? { name: line.slice(0, -1), dir: true } : { name: line, dir: false }))
-    // Newest first stays as `ls` gave it, folders among files; by name or
-    // size, folders come first.
+    // 新しい順は `ls` の結果のまま(フォルダとファイルが混ざる)。名前順とサイ
+    // ズ順ではフォルダを先にする。
     if (sort === 'name') entries.sort(byKind)
     if (sort === 'size') entries.sort((a, b) => (a.dir === b.dir ? 0 : a.dir ? -1 : 1))
     await update($, browser, b => (b.dir === dir ? { ...b, entries, error: null } : b))
@@ -318,8 +318,8 @@ async function list($: any, dir: string) {
   }
 }
 
-// Follows the draft: open while the caret is in an `@` mention, on the folder
-// it names, closed once it is not.
+// プロンプトの中身に追従する。キャレットが `@` メンションの中にある間は開いて
+// そのフォルダを表示し、外れたら閉じる。
 async function follow($: any, text: string, cursor: number) {
   const m = mentionAt(text, cursor)
   if (!m) {
@@ -328,14 +328,14 @@ async function follow($: any, text: string, cursor: number) {
     return
   }
   const { dir, filter } = splitQuery(m.query)
-  // A mention that names a file whole was chosen, from here or the engine's
-  // own suggestions: nothing is left to browse.
+  // メンションがファイル名全体を指しているなら、ここか本体の候補で選び終わっ
+  // たということ。もう一覧を見る必要は無い。
   const b = await read($, browser)
   if (b.active && b.dir === dir && filter !== '' && b.entries.some(x => !x.dir && x.name === filter)) {
     await dismiss($)
     return
   }
-  // A new folder or filter starts again at the first page.
+  // フォルダや絞り込みが変わったら1ページ目に戻る。
   await update($, browser, x => ({
     ...x,
     active: true,
@@ -348,8 +348,8 @@ async function follow($: any, text: string, cursor: number) {
   if (listed !== `${(await read($, browser)).sort}:${dir}`) await list($, dir)
 }
 
-// Taking one of the engine's own suggestions rewrites the draft without an
-// edit a hook hears, so while the browser is open the draft is read again.
+// 本体の候補を選ぶと、フックに届く編集なしにプロンプトが書き換わる。そのため
+// ブラウザが開いている間は、プロンプトを読み直して追従する。
 async function recheck($: any) {
   if (!(await read($, browser)).active) return
   try {
@@ -358,13 +358,14 @@ async function recheck($: any) {
     lastBox = { text: box.text, cursor: box.cursor }
     await follow($, box.text, box.cursor)
   } catch {
-    // The box unreadable (a dialog over it): leave the browser as it is.
+    // プロンプトが読めない(上にダイアログが出ている)。ブラウザはそのままにす
+    // る。
   }
 }
 
-// Writes `@path` over the mention the caret is in. A file, or a folder taken
-// as it is, ends the mention with a space and closes the browser; a folder
-// opened goes on as `@path/`, the browser following it.
+// キャレットがあるメンションを `@path` で書き換える。ファイル、またはフォルダ
+// をそのまま選んだ場合はメンションを空白で閉じてブラウザを閉じる。フォルダを
+// 開いた場合は `@path/` のまま続け、ブラウザもそこへ移る。
 async function choose($: any, path: string, done: boolean) {
   const box = await $.prompt.read().catch(() => lastBox)
   const m = mentionAt(box.text, box.cursor)
@@ -398,17 +399,21 @@ async function turn($: any, by: number) {
   await update($, browser, b => ({ ...b, page: Math.max(0, b.page + by) }))
 }
 
-// While on, pressing a file shows it in Quick Look, the browser kept open,
-// instead of writing it into the prompt.
+// オンの間は、ファイルを押すとプロンプトに書き込まず、ブラウザを開いたまま
+// Quick Look で表示する。
 async function togglePreview($: any) {
   await update($, browser, b => ({ ...b, preview: !b.preview }))
 }
 
-
-// Quick Look, as a script: a panel opened from the session's background
-// host comes up behind the terminal, so the script raises it a few times as
-// its window comes up, and closes any panel left from before. Text files are
-// forced to plain text, which Quick Look always draws.
+// Quick Look を開くスクリプト。セッションのバックグラウンドのホストから開いた
+// パネルはターミナルの後ろに出るので、窓が立ち上がる間に何度か最前面へ出し、
+// 前回のパネルが残っていれば閉じる。テキストファイルは Quick Look が必ず描け
+// るプレーンテキストとして開かせる。別の .sh ファイルにせずここに文字列で埋め
+// 込んでいるのは、プラグインのコードが自分のインストール先フォルダを知る API
+// が無く、同梱したファイルを実行時に見つけられないため。インストール先
+// (~/.claude/plugins/cache/<マーケットプレイス>/filepicker/<バージョン>/)はマ
+// ーケットプレイス名やバージョンで変わるので決め打ちもできない。文字列で持て
+// ば、マーケットプレイスからインストールしてもそのまま動く。
 const PEEK_SCRIPT = `#!/bin/sh
 pkill -x qlmanage 2>/dev/null
 # Text Quick Look has nothing to draw for (TOML, .gitignore, any dotfile or
@@ -426,13 +431,13 @@ done
 exit 0
 `
 
-// Shows a file in Quick Look, the browser kept open.
+// ファイルを Quick Look で表示する。ブラウザは開いたまま。
 async function peek($: any, path: string) {
   const cwd = sessionCwd || (await $.session.cwd().catch(() => '.'))
   const file = resolveDir(path, cwd, home)
-  // The script goes to sh on its standard input, never to a file another
-  // process could swap, in a session of its own so nothing ends the panel
-  // with the call; nothing waits for its raising to finish.
+  // スクリプトはファイルに書かず sh の標準入力に渡す(他のプロセスにすり替えら
+  // れる余地を作らないため)。独立したセッションで起動して呼び出しの終了でパネ
+  // ルが閉じないようにし、最前面化の完了も待たない。
   $.process
     .run(['perl', '-MPOSIX', '-e', 'setsid(); exec @ARGV or die', 'sh', '-s', '--', file], { stdin: PEEK_SCRIPT, timeoutMs: 8000 })
     .catch((err: unknown) => $.ui.toast(`Could not preview ${path}: ${String(err)}`))
@@ -443,14 +448,15 @@ async function dismiss($: any) {
   listed = null
 }
 
-// A file's extension, without its dot; none for a folder or a dotfile alone.
+// ファイルの拡張子(ドットなし)。フォルダや、ドットで始まるだけのファイルには
+// 無い。
 export const extOf = (x: Entry) => (x.dir ? null : (/[^.]\.([^.]+)$/.exec(x.name)?.[1]?.toLowerCase() ?? null))
 
-// The entries a kind and an extension keep, in their order.
+// 種類と拡張子で残す項目。順序は保つ。
 export const ofKind = (entries: Entry[], kind: Kind, ext: string | null) =>
   entries.filter(x => (kind === 'dirs' ? x.dir : kind === 'files' ? !x.dir : true) && (ext === null || extOf(x) === ext))
 
-// A folder's extensions, the commonest first.
+// フォルダ内の拡張子。多いものから。
 export const extensions = (entries: Entry[]) => {
   const counts = new Map<string, number>()
   for (const x of entries) {
@@ -460,8 +466,8 @@ export const extensions = (entries: Entry[]) => {
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([ext]) => ext)
 }
 
-// A path with its `.` and `..` steps walked, and the home written `~`:
-// where `../..` from the session's directory actually is.
+// `.` と `..` をたどって解決し、ホームを `~` で表したパス。セッションのディレ
+// クトリからの `../..` が実際にどこかを示す。
 export const whereIs = (path: string, home: string) => {
   const out: string[] = []
   for (const part of path.split('/')) {
@@ -473,9 +479,9 @@ export const whereIs = (path: string, home: string) => {
   return home && (abs === home || abs.startsWith(`${home}/`)) ? `~${abs.slice(home.length)}` : abs
 }
 
-// The steps of a mention's folder, each with the path that opens it: the
-// session's directory (`./`), the home (`~/`) or the root (`/`), then each
-// folder down to `dir`.
+// メンションのフォルダの階層と、それぞれを開くパス。セッションのディレクトリ
+// (`./`)、ホーム(`~/`)、ルート(`/`)のいずれかから始まり、`dir` まで1階層ずつ
+// 並ぶ。
 export const crumbs = (dir: string) => {
   const parts = dir.split('/').filter(p => p !== '')
   const root = dir.startsWith('/') ? { label: '/', path: '/' } : dir.startsWith('~/') ? { label: '~/', path: '~/' } : { label: './', path: '' }
@@ -489,9 +495,10 @@ export const crumbs = (dir: string) => {
   return steps
 }
 
-// The folder above `dir`, as a mention writes it (`src/` above `src/lib/`).
+// `dir` の1つ上のフォルダを、メンションの書き方で返す(`src/lib/` の上は
+// `src/`)。
 export const parentOf = (dir: string) => {
-  // The root has none above it; above the home is its own parent.
+  // ルートの上は無い。ホームの上はホームの親。
   if (dir === '/') return '/'
   const trimmed = dir.replace(/\/$/, '')
   if (trimmed === '~') return '~/../'
@@ -504,14 +511,14 @@ export const parentOf = (dir: string) => {
 async function drawBrowser($: any, e: any) {
   const b = await read($, browser)
   const { Box, Text, Button, Client } = $.ui.resolve(e)
-  // The frame's border and padding take four columns, its margin one more.
+  // 枠の線と内側の余白で4マス、外側の余白でさらに1マス使う。
   const width = Math.max(20, e.props.bodyColumns - 6)
   const narrow = width < NARROW
   const label = (icon: string, words: string) => (narrow ? icon : `${icon} ${words}`)
 
   const shown = matching(ofKind(b.entries, b.kind, b.ext), b.filter)
-  // macOS names its files decomposed (か + ゛); drawn composed, measured
-  // in columns.
+  // macOS はファイル名を分解した形(か + ゛)で返す。表示は合成した形にし、幅は
+  // マス数で測る。
   const longest = shown.reduce((n, x) => Math.max(n, textWidth(x.name.normalize('NFC'))), 2)
   const cell = Math.min(MAX_CELL, longest + 5)
   const cols = Math.max(1, Math.floor(width / cell))
@@ -526,7 +533,7 @@ async function drawBrowser($: any, e: any) {
       done: !x.dir,
     })
   }
-  // Pages of as many entries as the rows hold, turned with ◀ ▶.
+  // 行に入るだけの項目を1ページとし、◀ ▶ でめくる。
   const pageRows = Math.max(MIN_ROWS, Math.min(MAX_ROWS, (e.props.maxRows ?? 20) - CHROME_ROWS))
   const size = cols * pageRows
   const pages = Math.max(1, Math.ceil(items.length / size))
@@ -534,8 +541,8 @@ async function drawBrowser($: any, e: any) {
   const visible = items.slice(page * size, (page + 1) * size)
 
   const fit = (label: string) => fitCells(label, cell - 1)
-  // A choice among several, in its group's color: the one in force filled
-  // with it, the rest written in it.
+  // 複数から1つを選ぶボタン。グループの色で、選択中はその色で塗り、それ以外は
+  // その色の文字で書く。
   const chip = (key: string, label: string, on: boolean, tint: string, press: () => Promise<void>) => (
     <Button key={key} plain onPress={press}>
       <Text color={on ? C.ink : tint} backgroundColor={on ? tint : C.block} bold={on}>
@@ -543,8 +550,8 @@ async function drawBrowser($: any, e: any) {
       </Text>
     </Button>
   )
-  // The breadcrumbs, cut to the first step and as many of the last as the
-  // header leaves room for, `…/` between; the header's other parts measured.
+  // パンくずは先頭の階層と、見出しの残りに入るだけの末尾の階層を残し、間を `…
+  // /` にする。見出しの他の部分の幅はここで見積もる。
   const all = crumbs(b.dir)
   const fixed = 4 + (narrow ? 10 : 15) + (b.filter ? b.filter.length + 3 : 0) + (/(^|\/)\.\.(\/|$)/.test(b.dir) ? 12 : 0)
   const room = Math.max(8, width - fixed)
@@ -656,7 +663,7 @@ async function drawBrowser($: any, e: any) {
         {extensions(b.entries)
           .slice(0, MAX_EXTS)
           .map(ext => {
-            // Each extension in its own type's icon and color.
+            // 拡張子ごとに、その種類のアイコンと色を使う。
             const st = styleOf(`x.${ext}`)
             return chip(`fp-ext-${ext}`, `${st.icon} .${ext}`, b.ext === ext, st.color === C.text ? C.teal : st.color, () => show($, 'files', b.ext === ext ? null : ext))
           })}
@@ -681,15 +688,15 @@ export const register: Register = on => {
     return r
   })
 
-  // Sending the prompt ends the mention.
+  // プロンプトを送信したらメンションは終わり。
   on('prompt.submit', async ($, e, next) => {
     if ((await read($, browser)).active) await dismiss($)
     return next(e)
   })
 
-  // The grid's clicks and keys: a pick writes the entry in (a folder opens), a
-  // peek shows the file in Quick Look; with Preview on, a plain click on a
-  // file peeks too.
+  // 一覧のクリックとキー入力。pick は項目を書き込み(フォルダなら開き)、peek
+  // はファイルを Quick Look で表示する。Preview がオンのときは、ファイルの普
+  // 通のクリックも peek になる。
   on('ui.message', async ($, e, next) => {
     if (e.element !== 'fp-grid') return next(e)
     const d = e.data as { kind?: string; path?: string; done?: boolean }
@@ -700,7 +707,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Above whatever else the band draws: the browser, then the rest.
+  // 帯に描かれる他のものの上に、ブラウザを置く。
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await read($, browser)).active) return next(e)
     const { Box } = $.ui.resolve(e)
