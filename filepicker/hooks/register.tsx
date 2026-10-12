@@ -729,6 +729,14 @@ export const register: Register = on => {
     return r
   })
 
+  // 帯の部品の無い所(枠の余白や見出しの隙間)を押すと、ターミナルが前面に出て
+  // Quick Look が後ろに残る。そうした所のクリックは本体からフォーカスの通知とし
+  // て届くので、それでプレビューを閉じる。
+  on('ui.focus', async ($, e, next) => {
+    if (e.component === 'AbovePrompt' && e.origin.kind === 'person' && e.plugin !== 'filepicker') await closePeek($)
+    return next(e)
+  })
+
   // プロンプトを送信したらメンションは終わり。
   on('prompt.submit', async ($, e, next) => {
     if ((await read($, browser)).active) await dismiss($)

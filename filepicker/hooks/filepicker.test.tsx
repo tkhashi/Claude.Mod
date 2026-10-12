@@ -268,6 +268,20 @@ test('the same icon again closes the preview, another file switches, a blank cli
   await ui.unmount()
 })
 
+test('a click on the band off any control closes the preview', async ($, on) => {
+  const box = { text: '', cursor: 0 }
+  const ran: string[] = []
+  engine(on, box, [], ran)
+  on('ui.focus', async (_$, _e) => ({}) as any)
+  const ui = await band($)
+  await type($, box, '@src/')
+  const c = (await cells(ui)).find(x => x.name === 'app.ts')!
+  await ui.pointer({ type: 'down', x: c.x, y: c.y, button: 'left', in: 'fp-grid' })
+  await ($ as any).ui.focus({ component: 'AbovePrompt', requestId: 'band', origin: { kind: 'person' } })
+  expect(ran.filter(r => r.includes('"pkill"')).length).toBe(1)
+  await ui.unmount()
+})
+
 test('a ctrl-click is a plain pick, left to the right button', async ($, on) => {
   const box = { text: '', cursor: 0 }
   const filled: string[] = []
