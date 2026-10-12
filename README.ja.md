@@ -12,6 +12,10 @@
 
 機能や必要なものは、各 mod の README を参照してください。
 
+| statusbar | filepicker |
+| --- | --- |
+| ![statusbar](statusbar/docs/screenshot.png) | ![filepicker](filepicker/docs/screenshot.png) |
+
 ## インストール
 
 このリポジトリをマーケットプレイスとして追加し、使いたい mod をインストールします。

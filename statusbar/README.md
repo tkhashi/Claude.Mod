@@ -5,6 +5,8 @@
 
 A [Claude Code](https://claude.com/claude-code) mod that draws a vim-style powerline band of solid, rounded blocks above the prompt.
 
+![statusbar](docs/screenshot.png)
+
 ## Features
 
 - **Row 1**: the model (click to switch) and the effort (click to switch), then buttons for the worktree list, the subagent list, and compact mode

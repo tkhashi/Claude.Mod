@@ -5,6 +5,8 @@
 
 A [Claude Code](https://claude.com/claude-code) mod: type `@` in the prompt and a file and folder browser opens above the band, alongside Claude Code's own suggestions.
 
+![filepicker](docs/screenshot.png)
+
 ## Features
 
 - Typing narrows it: `@src/` opens `src/`, `@src/ut` lists entries starting with or containing `ut`

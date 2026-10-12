@@ -5,6 +5,8 @@
 
 プロンプトの上に、角丸のベタ塗りブロックで vim 風のステータス帯を描く [Claude Code](https://claude.com/claude-code) の mod です。
 
+![statusbar](docs/screenshot.png)
+
 ## 機能
 
 - **1行目**: model(クリックで切替)と effort(クリックで切替)、右側に worktree 一覧・サブエージェント一覧・コンパクト表示のボタン

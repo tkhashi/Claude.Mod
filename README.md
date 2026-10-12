@@ -12,6 +12,10 @@ Mods (plugins) for [Claude Code](https://claude.com/claude-code) that reshape it
 
 See each mod's README for its features and requirements.
 
+| statusbar | filepicker |
+| --- | --- |
+| ![statusbar](statusbar/docs/screenshot.png) | ![filepicker](filepicker/docs/screenshot.png) |
+
 ## Install
 
 Add this repository as a marketplace, then install the mods you want:

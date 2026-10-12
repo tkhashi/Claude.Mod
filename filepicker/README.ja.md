@@ -5,6 +5,8 @@
 
 プロンプトで `@` を打つと、Claude Code 本体の候補と並んで、帯の上にファイル・フォルダのブラウザが開く [Claude Code](https://claude.com/claude-code) の mod です。
 
+![filepicker](docs/screenshot.png)
+
 ## 機能
 
 - 続けて打つと絞り込みます。`@src/` で `src/` を開き、`@src/ut` で `ut` で始まる・含む項目を出します
