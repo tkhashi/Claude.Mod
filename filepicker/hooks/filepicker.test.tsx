@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { crumbs, extensions, fitCells, styleOf, textWidth, whereIs, matching, mentionAt, ofKind, parentOf, resolveDir, splitQuery } from './register'
+import { crumbs, extensions, fitCells, mentionOf, styleOf, textWidth, whereIs, matching, mentionAt, ofKind, parentOf, resolveDir, splitQuery } from './register'
 import { DEVICONS_BY_EXT, DEVICONS_BY_NAME } from './devicons'
 
 // The engine beneath the plugin: a draft the person edits, a folder tree `ls`
@@ -29,12 +29,13 @@ const engine = (on: On, box: { text: string; cursor: number }, filled: string[],
   on('process.run', async (_$, e: any) => {
     const argv = JSON.stringify(e)
     ran.push(argv)
-    if (argv.includes('peek')) return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
+    if (argv.includes('setsid')) return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as any
     if (argv.includes('/repo/many')) return out(Array.from({ length: 80 }, (_, i) => `f${String(i).padStart(2, '0')}.txt`).join('\n'))
     // Newest first with -t: util.ts was touched last, app.ts first.
+    if (argv.includes('/repo/My Docs')) return out('a b.txt\n')
     if (argv.includes('/repo/src')) return out(argv.includes('-1Apt') ? 'util.ts\nlib/\nREADME.md\napp.ts\n' : 'README.md\napp.ts\nlib/\nutil.ts\n')
-    if (argv.includes('/repo')) return out('README.md\nsrc/\n.git/\n')
+    if (argv.includes('/repo')) return out('README.md\nsrc/\n.git/\nMy Docs/\n')
     return { value: { exitCode: 1, stdout: '', stderr: '' } } as any
   })
 }
@@ -217,7 +218,7 @@ test('an option-click previews the file, the browser kept and nothing written', 
   const ui = await band($)
   await type($, box, '@src/')
   await click(ui, 'app.ts', true)
-  expect(ran.some(r => r.includes('peek.sh') && r.includes('src/app.ts')), 'quick look asked').toBe(true)
+  expect(ran.some(r => r.includes('setsid') && r.includes('src/app.ts')), 'quick look asked').toBe(true)
   expect(filled).toEqual([])
   expect(await shows(ui, 'app.ts'), 'still open').toBe(true)
   await ui.unmount()
@@ -232,7 +233,7 @@ test('a click on a file\'s icon previews it; on a folder\'s, opens it', async ($
   await type($, box, '@src/')
   const file = (await cells(ui)).find(c => c.name === 'app.ts')!
   await ui.pointer({ type: 'down', x: file.x, y: file.y, button: 'left', in: 'fp-grid' })
-  expect(ran.some(r => r.includes('peek.sh') && r.includes('src/app.ts')), 'previewed').toBe(true)
+  expect(ran.some(r => r.includes('setsid') && r.includes('src/app.ts')), 'previewed').toBe(true)
   expect(filled, 'nothing written').toEqual([])
   const folder = (await cells(ui)).find(c => c.name === 'lib/')!
   await ui.pointer({ type: 'down', x: folder.x, y: folder.y, button: 'left', in: 'fp-grid' })
@@ -262,7 +263,7 @@ test('in the grid, arrows move, Space previews, Return picks', async ($, on) => 
   // .. first, then util.ts, newest first.
   await ui.key({ key: 'right', in: 'fp-grid' })
   await ui.key({ key: ' ', in: 'fp-grid' })
-  expect(ran.some(r => r.includes('peek.sh') && r.includes('src/util.ts')), 'previewed').toBe(true)
+  expect(ran.some(r => r.includes('setsid') && r.includes('src/util.ts')), 'previewed').toBe(true)
   await ui.key({ key: 'return', in: 'fp-grid' })
   expect(filled.at(-1)).toBe('@src/util.ts ')
   await ui.unmount()
@@ -348,7 +349,7 @@ test('Preview on, a file opens in Quick Look and the browser stays', async ($, o
   await type($, box, '@src/')
   await ui.press({ key: 'fp-preview' })
   await click(ui, 'app.ts')
-  expect(ran.some(r => r.includes('peek.sh') && r.includes('src/app.ts')), 'quick look asked').toBe(true)
+  expect(ran.some(r => r.includes('setsid') && r.includes('src/app.ts')), 'quick look asked').toBe(true)
   expect(filled, 'nothing written').toEqual([])
   expect(await ui.find({ type: 'Box', key: 'filepicker' }), 'still open').toBeDefined()
   await ui.unmount()
@@ -359,6 +360,30 @@ test('wide characters take two columns, so a grid cell stays its width', () => {
   expect(textWidth('か\u3099')).toBe(2)
   expect(textWidth(fitCells('とても長い日本語のファイル名.txt', 12))).toBe(12)
   expect(textWidth(fitCells('a.ts', 12))).toBe(12)
+})
+
+test('a name with a blank is written quoted, and the quoted mention read back', async ($, on) => {
+  const box = { text: '', cursor: 0 }
+  const filled: string[] = []
+  engine(on, box, filled)
+  const ui = await band($)
+  await type($, box, '@')
+  await click(ui, 'My Docs/')
+  expect(filled.at(-1)).toBe('@"My Docs/"')
+  expect(await shows(ui, 'a b.txt'), 'the quoted folder listed').toBe(true)
+  await click(ui, 'a b.txt')
+  expect(filled.at(-1)).toBe('@"My Docs/a b.txt" ')
+  await ui.unmount()
+})
+
+test('quoted mentions, the root and the home', () => {
+  expect(mentionAt('see @"My Docs/a', 15)).toEqual({ start: 4, end: 15, query: 'My Docs/a' })
+  expect(mentionAt('see @"My Docs/" x', 15), 'the caret just past the quote').toEqual({ start: 4, end: 15, query: 'My Docs/' })
+  expect(mentionAt('see @"My Docs/" x', 16), 'past the mention').toBeNull()
+  expect(mentionOf('a b/')).toBe('@"a b/"')
+  expect(mentionOf('src/')).toBe('@src/')
+  expect(parentOf('/')).toBe('/')
+  expect(parentOf('~/')).toBe('~/../')
 })
 
 test('the mention, its folder and its filter are read from the caret', () => {

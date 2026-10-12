@@ -1,1 +1,1 @@
-{ "name": "statusbar", "version": "0.23.1", "description": "Vim-style powerline statusline above the prompt", "types": "./types/index.d.ts" }
+{ "name": "statusbar", "version": "0.24.0", "description": "Vim-style powerline statusline above the prompt", "types": "./types/index.d.ts" }

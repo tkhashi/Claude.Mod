@@ -125,7 +125,7 @@ const agentStatus: Record<string, { icon: string; color: string }> = {
 }
 
 const shortenPath = (p: string, home: string, max: number) => {
-  const q = home && p.startsWith(home) ? `~${p.slice(home.length)}` : p
+  const q = home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p
   if (q.length <= max) return q
   return `…${q.slice(q.length - Math.max(5, max - 1))}`
 }
@@ -161,8 +161,17 @@ const shortModel = (id: string) => {
   return `${(family ?? '').charAt(0)}${rest.join('')}`
 }
 
-// Whether the option names the model running now: "opus" for "Opus 5.5".
-const isCurrentModel = (option: string, model: string) => model.toLowerCase().includes(option.toLowerCase())
+// Whether the option names the model running now: "opus" for
+// "claude-opus-5-5", "opus[1m]" only for its 1M context.
+const isCurrentModel = (option: string, model: string) => {
+  const o = option.toLowerCase()
+  const m = model.toLowerCase()
+  if (o === m) return true
+  // An alias names a family and, with `[1m]`, a context size: both must match.
+  const ctx = (x: string) => /\[(\d+[km])\]$/.exec(x)?.[1] ?? ''
+  const family = o.replace(/\[[^\]]*\]$/, '')
+  return /^[a-z]+$/.test(family) && m.includes(family) && ctx(o) === ctx(m)
+}
 
 // One run of styled text; a segment is a few runs drawn side by side, and
 // pressing a segment runs its action.
@@ -275,14 +284,20 @@ const labelOf = (g: Gauge, level: Level) =>
 
 // How a gauge is drawn, widest first: a bar with the long label and its
 // extra (the reset, the tokens), without the extra, with the short label, the
-// icon and percentage alone. Each is measured by the percentage it shows, so
-// a gauge keeps its words while they fit at all.
-type Level = 'extra' | 'long' | 'short' | 'chip'
+// icon and percentage alone, the percentage alone (told apart by its color).
+// Each is measured by the percentage it shows, so a gauge keeps its words
+// while they fit at all.
+type Level = 'extra' | 'long' | 'short' | 'chip' | 'bare'
 
 const chipText = (g: Gauge) => ` ${g.icon} ${Math.round(g.pct)}% `
+const bareText = (g: Gauge) => ` ${Math.round(g.pct)}% `
 
 const gaugeWidth = (g: Gauge, level: Level) =>
-  level === 'chip' ? chipText(g).length : barText(labelOf(g, level), `${Math.round(g.pct)}%`, 0).length
+  level === 'chip'
+    ? chipText(g).length
+    : level === 'bare'
+      ? bareText(g).length
+      : barText(labelOf(g, level), `${Math.round(g.pct)}%`, 0).length
 
 // A gauge keeps its own hue until it runs high, then turns red.
 const gaugeColor = (g: Gauge) => (g.pct >= 80 ? C.red : g.base)
@@ -296,7 +311,7 @@ const EIGHTHS = ['▏', '▎', '▍', '▌', '▋', '▊', '▉']
 // any use at all shows.
 const gaugeSeg = (g: Gauge, width: number, level: Level): Seg => {
   const color = gaugeColor(g)
-  const inner = level === 'chip' ? chipText(g) : barText(labelOf(g, level), `${Math.round(g.pct)}%`, width)
+  const inner = level === 'chip' ? chipText(g) : level === 'bare' ? bareText(g) : barText(labelOf(g, level), `${Math.round(g.pct)}%`, width)
   const fillBg = mix(color, C.ink, 0.45)
   const trackBg = mix(color, C.ink, 0.18)
   const exact = Math.min(inner.length, Math.max(0, (g.pct * inner.length) / 100))
@@ -321,7 +336,7 @@ const gaugeSeg = (g: Gauge, width: number, level: Level): Seg => {
 }
 
 // Lays the gauges into the room given, never past it. Every gauge gets in as
-// its icon and percentage before any is left out (the last first, and only
+// its bare percentage before any is left out (the last first, and only
 // when even those do not fit); the room past that is shared by weight, a
 // gauge whose share is under its least keeping its least and the rest
 // sharing what remains; each then takes the widest level its width holds.
@@ -330,7 +345,7 @@ export const fitGauges = (all: Gauge[], room: number): Seg[] => {
     const gauges = all.slice(0, n)
     // Each gauge brings the gap before it.
     const free = room - n
-    const least = gauges.map(g => gaugeWidth(g, 'chip'))
+    const least = gauges.map(g => gaugeWidth(g, 'bare'))
     if (least.reduce((a, b) => a + b, 0) > free) continue
     const widths: (number | null)[] = gauges.map(() => null)
     for (;;) {
@@ -346,8 +361,8 @@ export const fitGauges = (all: Gauge[], room: number): Seg[] => {
     }
     return gauges.map((g, i) => {
       const w = Math.min(MAX_CELLS, widths[i]!)
-      const level = (['extra', 'long', 'short'] as const).find(l => gaugeWidth(g, l) <= w) ?? 'chip'
-      return gaugeSeg(g, level === 'chip' ? 0 : w, level)
+      const level = (['extra', 'long', 'short', 'chip'] as const).find(l => gaugeWidth(g, l) <= w) ?? 'bare'
+      return gaugeSeg(g, level === 'chip' || level === 'bare' ? 0 : w, level)
     })
   }
   return []
@@ -423,12 +438,16 @@ const effortOfRun = (args: string, text: string | undefined) => {
 // band shows the new one at once and the next turn confirms it.
 async function apply($: any, which: 'model' | 'effort', value: string) {
   await update($, picker, () => null)
+  // The command waits for the turn to end; the band shows the choice now and
+  // takes it back if the command fails.
+  const before = await read($, snap)
+  if (which === 'effort') await setEffort($, value)
+  else await update($, snap, (s: Snap) => ({ ...s, model: value }))
   try {
     await $.command.run({ command: which, args: value })
-    if (which === 'effort') await setEffort($, value)
-    else await update($, snap, (s: Snap) => ({ ...s, model: titleCase(value) }))
     refresh($).catch(() => undefined)
   } catch (err) {
+    await update($, snap, (s: Snap) => ({ ...s, model: before.model, effort: before.effort }))
     $.ui.toast(`Could not switch ${which}: ${String(err)}`)
   }
 }
@@ -447,11 +466,34 @@ async function loadModelOptions($: any) {
 // .claude/worktree), as `git worktree list` knows them.
 const PROJECT_WORKTREE = /^\/\.claude\/worktrees?\//
 
-async function refresh($: any) {
+// One refresh at a time: one asked for while another runs is run once after
+// it, so a slow one never lands over a newer one.
+let refreshing: Promise<void> | null = null
+let refreshAgain = false
+
+async function refresh($: any): Promise<void> {
+  if (refreshing) {
+    refreshAgain = true
+    return refreshing
+  }
+  refreshing = (async () => {
+    try {
+      do {
+        refreshAgain = false
+        await refreshOnce($)
+      } while (refreshAgain)
+    } finally {
+      refreshing = null
+    }
+  })()
+  return refreshing
+}
+
+async function refreshOnce($: any) {
   const cwd = await $.session.cwd()
   const git = async (args: string[]) => {
     try {
-      const r = await $.process.run(['git', '-C', cwd, '-c', 'core.fsmonitor=false', ...args], { timeoutMs: 4000 })
+      const r = await $.process.run(['git', '--no-optional-locks', '-C', cwd, '-c', 'core.fsmonitor=false', ...args], { timeoutMs: 4000 })
       return r.exitCode === 0 ? (r.stdout as string).trim() : null
     } catch {
       return null
@@ -486,19 +528,24 @@ async function refresh($: any) {
     agents = []
   }
 
+  // The PR is asked for once a minute, and at once when the branch changes,
+  // the old one cleared; a failed ask (network, auth) keeps what was shown,
+  // while gh saying there is no PR clears it.
   let prPatch = {}
-  if (prTick++ % 12 === 0) {
+  const branchChanged = branch !== (await read($, snap)).branch
+  if (branchChanged) prPatch = { pr: null }
+  if (prTick++ % 12 === 0 || branchChanged) {
     try {
       const r = await $.process.run(['gh', 'pr', 'view', '--json', 'number,title,reviewDecision,isDraft,url'], { cwd, timeoutMs: 8000 })
       if (r.exitCode === 0) {
         const j = JSON.parse(r.stdout)
         const state = j.isDraft ? 'draft' : j.reviewDecision === 'APPROVED' ? 'approved' : j.reviewDecision === 'CHANGES_REQUESTED' ? 'changes!' : ''
         prPatch = { pr: { number: j.number, title: j.title, state, url: j.url } }
-      } else {
+      } else if (/no pull requests? found/i.test(r.stderr ?? '')) {
         prPatch = { pr: null }
       }
     } catch {
-      prPatch = { pr: null }
+      // Keep the PR shown.
     }
   }
 
@@ -530,6 +577,11 @@ async function refresh($: any) {
 }
 
 let home = ''
+let timer: { cancel: () => void } | null = null
+
+// An effort level the band draws, or null for anything else (a numeric
+// budget, a value from an older version).
+const effortOf = (x: unknown) => (typeof x === 'string' && EFFORTS.includes(x) ? x : null)
 
 // Whether a drawing shows nothing: no text in it anywhere.
 const isBlank = (el: any): boolean => {
@@ -574,6 +626,11 @@ async function drawBand($: any, e: any) {
       action: { kind: 'pick', which: 'model' },
     })
     // One run of one color, so the Button inverts it whole.
+    // 5h and 7d the hint line could not fit, as bare percentages beside the
+    // effort, so the plan's usage is always in sight.
+    const spare: Seg[] = gaugesOf(s)
+      .filter(g => hintMissing.includes(g.key))
+      .map(g => ({ key: `spare-${g.key}`, parts: [block(bareText(g), gaugeColor(g))] }))
     const effortSeg = (withIcon: boolean): Seg => ({
       key: 'effort',
       parts: [block(` ${withIcon ? `${I.effort} ` : ''}${s.effort ?? 'effort'} `, effortBg, s.effort ? C.ink : C.text)],
@@ -647,10 +704,10 @@ async function drawBand($: any, e: any) {
       if (title) parts.push(block(`${title} `, st.bg, C.ink, false))
       return { key: 'pr', parts, action: { kind: 'link', href: s.pr.url } }
     }
-    const left2 = (path: string, branch: string | null, title: string | null): Seg[] => [
+    const left2 = (path: string, branch: string | null, title: string | null, withPr = true): Seg[] => [
       pathSeg(path),
       ...(branch === null ? [] : [branchSeg(branch)]),
-      prSeg(title),
+      ...(withPr ? [prSeg(title)] : []),
     ]
     // The band as wide as it can be drawn: roomy (a margin, rounded ends) while
     // everything fits whole, else narrow (square, no margin).
@@ -660,8 +717,17 @@ async function drawBand($: any, e: any) {
       // its initial, then its icons.
       let line1: Line = { left: [], right: [] }
       let full = false
-      for (const [form, withIcon] of [['ctx', true], ['name', true], ['short', true], ['short', false]] as const) {
-        line1 = { left: [modelSeg(form, withIcon), effortSeg(withIcon)], right: [wtSeg, agSeg, compactSeg] }
+      // At the very narrowest the drawer buttons go too; the compact switch
+      // stays at the right end.
+      const tries1 = [
+        ['ctx', true, true],
+        ['name', true, true],
+        ['short', true, true],
+        ['short', false, true],
+        ['short', false, false],
+      ] as const
+      for (const [form, withIcon, drawers] of tries1) {
+        line1 = { left: [modelSeg(form, withIcon), effortSeg(withIcon), ...spare], right: drawers ? [wtSeg, agSeg, compactSeg] : [compactSeg] }
         if (lineWidth(line1, round) + 1 <= width) {
           full = form === 'ctx'
           break
@@ -675,12 +741,14 @@ async function drawBand($: any, e: any) {
       if (width - bare(branch) - 1 < MIN_PATH && branch !== null && branch.length > 12) {
         branch = cut(branch, Math.max(12, branch.length - (MIN_PATH - (width - bare(branch) - 1))))
       }
-      const room = width - bare(branch) - 1
+      // Too narrow for six columns of path, the PR gives way.
+      const withPr = width - bare(branch) - 1 >= 6
+      const room = width - lineWidth({ left: left2('', branch, null, withPr), right: [] }, round) - 1
       const fullPath = shortenPath(s.cwd, home, Infinity)
       const pathLen = Math.min(fullPath.length, Math.max(6, room))
       const titleRoom = room - pathLen - 1
       const title = s.pr && titleRoom >= 6 ? cut(s.pr.title, titleRoom) : null
-      const line2: Line = { left: left2(shortenPath(s.cwd, home, pathLen), branch, title), right: [] }
+      const line2: Line = { left: left2(shortenPath(s.cwd, home, pathLen), branch, title, withPr), right: [] }
       const fits = full && pathLen === fullPath.length
       return { round, width, line1, line2, fits }
     }
@@ -703,6 +771,7 @@ async function drawBand($: any, e: any) {
         left: [
           modelSeg(t.form, t.icon),
           effortSeg(t.icon),
+          ...spare,
           ...('path' in t ? [] : [pathSeg(path)]),
           ...(s.branch !== null && t.branch > 0 ? [branchSeg(cut(s.branch, t.branch))] : []),
           ...(t.pr ? [prSeg(null)] : []),
@@ -740,7 +809,9 @@ async function drawBand($: any, e: any) {
         return
       }
       if (a.kind === 'compact') {
-        const compact = !v.compact
+        // From the view as it is now, not as this drawing saw it, so quick
+        // presses each toggle.
+        const compact = !(await read($, view)).compact
         await update($, view, x => ({ ...x, compact }))
         return $.store.set(COMPACT_STORE_KEY, compact)
       }
@@ -874,26 +945,38 @@ async function drawBand($: any, e: any) {
 // The gauges, on the hint line under the prompt: beside the engine's mode
 // pill (`⏵⏵ auto mode on`), which it keeps to the left of a hook's tree, with
 // the rest of the hint before them.
+// The plan's gauges the hint line had no room for, as it last drew: the band
+// above the prompt shows them so they never go out of sight.
+let hintMissing: string[] = []
+
 async function drawHint($: any, e: any) {
   const s = await read($, snap)
   if (s.model === '') return null
   const gauges = gaugesOf(s)
-  if (gauges.length === 0) return null
+  if (gauges.length === 0) {
+    hintMissing = []
+    return null
+  }
   const { Box, Text } = $.ui.resolve(e)
   const hint: string = e.props.hint ?? ''
   // The hint's two leading columns, the pill's while a mode is on (its hint
   // then reads `(shift+tab to cycle)`), and one kept free.
   const pill = /shift\+tab to cycle/.test(hint) ? 18 : 0
   const width = Math.max(20, (e.viewport?.columns ?? 100) - 2 - pill - 1)
-  // The gauges take at most half the line; the hint keeps what they leave,
-  // cut at its end.
-  const segs = fitGauges(gauges, Math.min(Math.floor(width / 2), width - Math.min(hint.length, 12) - 1))
+  // The gauges take at most half the line, the hint what they leave, cut at
+  // its end; where that drops a gauge, the hint gives way and the gauges take
+  // the whole line. 5h and 7d go last of all; any still left out the band
+  // above the prompt shows instead.
+  const roomy = fitGauges(gauges, Math.min(Math.floor(width / 2), width - Math.min(hint.length, 12) - 1))
+  const all = roomy.length === gauges.length
+  const segs = all ? roomy : fitGauges(gauges, width)
+  hintMissing = ['5h', '7d'].filter(k => gauges.some(g => g.key === k) && !segs.some(x => x.key === k))
   const parts = segs.flatMap(seg => [gapSeg(`_${seg.key}`), seg]).flatMap(seg => seg.parts.map((p, j) => ({ ...p, key: `${seg.key}${j}` })))
   return (
     <Box overflow="hidden">
       <Box key="hint" flexShrink={1} flexGrow={1}>
         <Text dimColor wrap="truncate-end">
-          {hint}
+          {all ? hint : ' '}
         </Text>
       </Box>
       <Box key="gauges" flexShrink={0}>
@@ -910,18 +993,30 @@ async function drawHint($: any, e: any) {
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
-    home = (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout
-    if ((await $.store.get(COMPACT_STORE_KEY)) === true) await update($, view, v => ({ ...v, compact: true }))
-    const effort = (await $.store.get(EFFORT_STORE_KEY)) as string | undefined
-    if (effort) await update($, snap, (s: Snap) => (s.effort === null ? { ...s, effort } : s))
+    // Each step on its own, so one failing (no HOME, an unreadable store)
+    // never keeps the timer from starting.
+    try {
+      home = (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout
+    } catch {
+      home = ''
+    }
+    try {
+      if ((await $.store.get(COMPACT_STORE_KEY)) === true) await update($, view, v => ({ ...v, compact: true }))
+      const effort = effortOf((await $.store.get(EFFORT_STORE_KEY)) as unknown)
+      if (effort) await update($, snap, (s: Snap) => (s.effort === null ? { ...s, effort } : s))
+    } catch {
+      // Start from the defaults.
+    }
     void loadModelOptions($)
-    $.clock.every(5000, () => void refresh($))
-    void refresh($)
+    // A reload or re-enable starts the session again: the old timer goes.
+    timer?.cancel()
+    timer = $.clock.every(5000, () => void refresh($).catch(() => undefined))
+    void refresh($).catch(() => undefined)
     return next(e)
   })
 
   on('session.measure', async ($, e, next) => {
-    void refresh($)
+    void refresh($).catch(() => undefined)
     return next(e)
   })
 
@@ -929,7 +1024,11 @@ export const register: Register = on => {
     // A subagent's step speaks of its own model and effort, not the session's.
     if (!e.agentId) {
       await update($, snap, (s: Snap) => ({ ...s, model: e.model }))
-      if (e.effort !== undefined) await setEffort($, String(e.effort))
+      // A level the band knows; a model without effort (none sent) or a
+      // numeric budget leaves the band without one rather than a stale one.
+      await update($, snap, (s: Snap) => ({ ...s, effort: effortOf(e.effort) }))
+      const effort = effortOf(e.effort)
+      if (effort) await $.store.set(EFFORT_STORE_KEY, effort)
     }
     return yield* next(e)
   })

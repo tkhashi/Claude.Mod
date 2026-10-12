@@ -158,19 +158,22 @@ const legible = (hex: string) => {
 const fromDevicons = (entry: readonly [string, string] | undefined): Style | null =>
   entry ? { icon: entry[0], color: legible(entry[1]) } : null
 
+// A table's own entry, never one Object's prototype lends (`constructor`).
+const own = <T,>(table: Record<string, T>, key: string): T | undefined => (Object.hasOwn(table, key) ? table[key] : undefined)
+
 // nvim-web-devicons first, by whole name, then by the longest dotted ending
 // (`d.ts` before `ts`); where it has nothing, or a glyph this font lacks, the
 // table above; else a plain file.
 export const styleOf = (name: string): Style => {
   const lower = name.toLowerCase()
-  const whole = fromDevicons(DEVICONS_BY_NAME[name] ?? DEVICONS_BY_NAME[lower]) ?? BY_NAME[lower]
+  const whole = fromDevicons(own(DEVICONS_BY_NAME, name) ?? own(DEVICONS_BY_NAME, lower)) ?? own(BY_NAME, lower)
   if (whole) return whole
   if (lower === '.env' || lower.startsWith('.env.')) return { icon: '\uf462', color: C.yellow }
   const parts = name.split('.')
   for (let i = 1; i < parts.length; i++) {
     if (i === 1 && parts[0] === '') continue
     const ending = parts.slice(i).join('.')
-    const style = fromDevicons(DEVICONS_BY_EXT[ending] ?? DEVICONS_BY_EXT[ending.toLowerCase()]) ?? BY_EXT[ending.toLowerCase()]
+    const style = fromDevicons(own(DEVICONS_BY_EXT, ending) ?? own(DEVICONS_BY_EXT, ending.toLowerCase())) ?? own(BY_EXT, ending.toLowerCase())
     if (style) return style
   }
   return PLAIN
@@ -201,7 +204,17 @@ const MAX_CELL = 36
 // the next blank, wherever in it the caret is, so the folder shown is the
 // one the text names, as the engine's own suggestions read it.
 export const mentionAt = (text: string, cursor: number) => {
-  const m = /(?:^|\s)@(\S*)$/.exec(text.slice(0, cursor))
+  const before = text.slice(0, cursor)
+  // Quoted, as the engine writes a path with blanks (`@"My Docs/a.txt"`):
+  // from `@"` to its closing quote, the caret inside or just past it.
+  const q = /(?:^|\s)(@"[^"]*"?)$/.exec(before)
+  if (q) {
+    const start = cursor - (q[1] ?? '').length
+    const closedAt = before.endsWith('"') && before.length - start > 2 ? cursor - 1 : text.indexOf('"', cursor)
+    const close = closedAt < 0 ? text.length : closedAt
+    return { start, end: Math.min(text.length, close + 1), query: text.slice(start + 2, close) }
+  }
+  const m = /(?:^|\s)@(\S*)$/.exec(before)
   if (!m) return null
   const start = cursor - (m[1] ?? '').length - 1
   const tail = /^\S*/.exec(text.slice(cursor))?.[0] ?? ''
@@ -209,8 +222,11 @@ export const mentionAt = (text: string, cursor: number) => {
   return { start, end, query: text.slice(start + 1, end) }
 }
 
+// A path as a mention, quoted when it holds a blank, as the engine reads it.
+export const mentionOf = (path: string) => (/\s/.test(path) ? `@"${path}"` : `@${path}`)
+
 // How many columns a character takes: two for the wide scripts (CJK, kana,
-// hangul, fullwidth forms), none for a combining mark, one otherwise.
+// hangul, fullwidth forms) and emoji, none for a combining mark, one otherwise.
 const charWidth = (ch: string) => {
   const c = ch.codePointAt(0) ?? 0
   if ((c >= 0x300 && c <= 0x36f) || (c >= 0x3099 && c <= 0x309a) || c === 0x200d || (c >= 0xfe00 && c <= 0xfe0f)) return 0
@@ -222,6 +238,9 @@ const charWidth = (ch: string) => {
     (c >= 0xfe30 && c <= 0xfe4f) ||
     (c >= 0xff00 && c <= 0xff60) ||
     (c >= 0xffe0 && c <= 0xffe6) ||
+    (c >= 0x1f300 && c <= 0x1f64f) ||
+    (c >= 0x1f680 && c <= 0x1f6ff) ||
+    (c >= 0x1f900 && c <= 0x1faff) ||
     (c >= 0x20000 && c <= 0x3fffd)
   )
     return 2
@@ -271,6 +290,8 @@ let sessionCwd = ''
 let listed: string | null = null
 // The draft as the last edit left it, should the box not answer a read.
 let lastBox = { text: '', cursor: 0 }
+// The draft's re-read, one at a time across the session starting again.
+let recheckTimer: { cancel: () => void } | null = null
 
 async function list($: any, dir: string) {
   const sort = (await read($, browser)).sort
@@ -280,7 +301,7 @@ async function list($: any, dir: string) {
     const flags = SORTS.find(x => x.sort === sort)?.flags ?? '-1Ap'
     const r = await $.process.run(['ls', flags, resolveDir(dir, cwd, home)], { timeoutMs: 3000 })
     if (r.exitCode !== 0) {
-      await update($, browser, b => ({ ...b, entries: [], error: 'No such folder' }))
+      await update($, browser, b => (b.dir === dir ? { ...b, entries: [], error: 'No such folder' } : b))
       return
     }
     const entries = (r.stdout as string)
@@ -293,7 +314,7 @@ async function list($: any, dir: string) {
     if (sort === 'size') entries.sort((a, b) => (a.dir === b.dir ? 0 : a.dir ? -1 : 1))
     await update($, browser, b => (b.dir === dir ? { ...b, entries, error: null } : b))
   } catch (err) {
-    await update($, browser, b => ({ ...b, entries: [], error: String(err) }))
+    await update($, browser, b => (b.dir === dir ? { ...b, entries: [], error: String(err) } : b))
   }
 }
 
@@ -351,7 +372,7 @@ async function choose($: any, path: string, done: boolean) {
     await update($, browser, b => ({ ...closed, sort: b.sort, preview: b.preview }))
     return
   }
-  const text = `${box.text.slice(0, m.start)}@${path}${done ? ' ' : ''}${box.text.slice(m.end)}`
+  const text = `${box.text.slice(0, m.start)}${mentionOf(path)}${done ? ' ' : ''}${box.text.slice(m.end)}`
   await $.prompt.fill({ text, mode: 'replace' })
   if (done) {
     await update($, browser, b => ({ ...closed, sort: b.sort, preview: b.preview }))
@@ -388,7 +409,6 @@ async function togglePreview($: any) {
 // host comes up behind the terminal, so the script raises it a few times as
 // its window comes up, and closes any panel left from before. Text files are
 // forced to plain text, which Quick Look always draws.
-const PEEK_PATH = '/tmp/claude-filepicker-peek.sh'
 const PEEK_SCRIPT = `#!/bin/sh
 pkill -x qlmanage 2>/dev/null
 # Text Quick Look has nothing to draw for (TOML, .gitignore, any dotfile or
@@ -405,21 +425,17 @@ for i in 1 2 3 4; do
 done
 exit 0
 `
-const INSTALL_PEEK = `cat > ${PEEK_PATH} && chmod +x ${PEEK_PATH}`
 
 // Shows a file in Quick Look, the browser kept open.
 async function peek($: any, path: string) {
   const cwd = sessionCwd || (await $.session.cwd().catch(() => '.'))
   const file = resolveDir(path, cwd, home)
-  try {
-    // The script is written where it is run from, then run in a session of
-    // its own so nothing ends the panel with the call.
-    const r = await $.process.run(['sh', '-c', INSTALL_PEEK, 'peek'], { stdin: PEEK_SCRIPT, timeoutMs: 5000 })
-    if (r.exitCode !== 0) throw new Error((r.stderr as string).trim() || 'could not write the preview script')
-    await $.process.run(['perl', '-MPOSIX', '-e', 'setsid(); exec @ARGV or die', PEEK_PATH, file], { timeoutMs: 8000 })
-  } catch (err) {
-    $.ui.toast(`Could not preview ${path}: ${String(err)}`)
-  }
+  // The script goes to sh on its standard input, never to a file another
+  // process could swap, in a session of its own so nothing ends the panel
+  // with the call; nothing waits for its raising to finish.
+  $.process
+    .run(['perl', '-MPOSIX', '-e', 'setsid(); exec @ARGV or die', 'sh', '-s', '--', file], { stdin: PEEK_SCRIPT, timeoutMs: 8000 })
+    .catch((err: unknown) => $.ui.toast(`Could not preview ${path}: ${String(err)}`))
 }
 
 async function dismiss($: any) {
@@ -475,7 +491,10 @@ export const crumbs = (dir: string) => {
 
 // The folder above `dir`, as a mention writes it (`src/` above `src/lib/`).
 export const parentOf = (dir: string) => {
+  // The root has none above it; above the home is its own parent.
+  if (dir === '/') return '/'
   const trimmed = dir.replace(/\/$/, '')
+  if (trimmed === '~') return '~/../'
   if (trimmed === '' || trimmed === '.') return '../'
   if (/(^|\/)\.\.$/.test(trimmed)) return `${trimmed}/../`
   const slash = trimmed.lastIndexOf('/')
@@ -650,7 +669,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     home = (await $.process.run(['sh', '-c', 'printf %s "$HOME"'])).stdout
     sessionCwd = e.cwd
-    $.clock.every(400, () => void recheck($))
+    recheckTimer?.cancel()
+    recheckTimer = $.clock.every(400, () => void recheck($))
     return next(e)
   })
 

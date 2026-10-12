@@ -51,8 +51,10 @@ const Grid: ClientModule<Props, State> = (props, surface) => {
     else if (k.key === 'left') move(from - 1)
     else if (k.key === 'down') move(from + cols)
     else if (k.key === 'up') move(from - cols)
-    else if (k.key === 'return') send(from, false)
-    else if (k.key === ' ') send(from, true)
+    // Return and Space act on a chosen entry only, never on the first by
+    // default after a click on blank space.
+    else if (k.key === 'return' && state.cursor !== null) send(state.cursor, false)
+    else if (k.key === ' ' && state.cursor !== null) send(state.cursor, true)
   })
 
   return (

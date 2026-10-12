@@ -203,3 +203,19 @@ test('every gauge shows before any is dropped, within the room, at any width', (
   expect(tight.length < 4 && tight.length > 0, 'the last left out only when even chips do not fit').toBe(true)
   expect(width(tight) <= 20).toBe(true)
 })
+
+test('narrow, 5h and 7d outlast ctx and ac, down to bare percentages', () => {
+  const g = (key: string, pct: number, weight: number, label = key, short = key) =>
+    ({ key, icon: 'x', label, short, pct, base: '#ffffff', extra: null, weight }) as any
+  const all = [g('5h', 42, 3), g('7d', 7, 3), g('ctx', 12, 1, 'Ctx', 'Ctx'), g('ac', 13, 1, 'Auto-compact', 'AC')]
+  expect(fitGauges(all, 14).map((x: any) => x.key), 'the plan first').toEqual(['5h', '7d'])
+  expect(fitGauges(all, 28).map((x: any) => x.key), 'all four as bare percentages').toEqual(['5h', '7d', 'ctx', 'ac'])
+})
+
+test('at the narrowest the compact switch still shows on row 0', async ($, on) => {
+  engine(on)
+  await step($, 'claude-sonnet-5-5[1m]', 'high')
+  const ui = await band($, 20)
+  expect((await ui.find({ type: 'Box', key: 'r0' }))?.text?.trimEnd().endsWith('\uf066')).toBe(true)
+  await ui.unmount()
+})
