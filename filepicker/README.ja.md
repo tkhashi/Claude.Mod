@@ -26,7 +26,7 @@
 ## インストール
 
 ```sh
-claude plugin marketplace add tkhashi/Claude.Mod
+claude plugin marketplace add tkhashi/Claude.Mods
 claude plugin install filepicker@local-mods
 ```
 

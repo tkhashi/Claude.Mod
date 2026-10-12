@@ -1,1 +1,1 @@
-{"name": "statusbar", "version": "0.24.2", "description": "Vim-style powerline statusline above the prompt", "author": {"name": "tkhashi", "url": "https://github.com/tkhashi"}, "license": "MIT", "homepage": "https://github.com/tkhashi/Claude.Mod", "types": "./types/index.d.ts"}
+{"name": "statusbar", "version": "0.24.2", "description": "Vim-style powerline statusline above the prompt", "author": {"name": "tkhashi", "url": "https://github.com/tkhashi"}, "license": "MIT", "homepage": "https://github.com/tkhashi/Claude.Mods", "types": "./types/index.d.ts"}

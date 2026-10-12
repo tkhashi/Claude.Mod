@@ -26,7 +26,7 @@ A [Claude Code](https://claude.com/claude-code) mod: type `@` in the prompt and 
 ## Install
 
 ```sh
-claude plugin marketplace add tkhashi/Claude.Mod
+claude plugin marketplace add tkhashi/Claude.Mods
 claude plugin install filepicker@local-mods
 ```
 
