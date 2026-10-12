@@ -40,7 +40,9 @@ const Grid: ClientModule<Props, State> = (props, surface) => {
     } else if (e.type === 'down') {
       const i = at(e.x, e.y)
       surface.setState({ ...state, cursor: i })
-      send(i, e.alt === true || onIconAt(e.x))
+      // 項目の無い所を押したら、それを伝えてプレビューを閉じさせる。
+      if (i === null) surface.post({ kind: 'blank' })
+      else send(i, e.alt === true || onIconAt(e.x))
     }
   })
 

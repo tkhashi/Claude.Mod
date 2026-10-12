@@ -30,6 +30,7 @@ const engine = (on: On, box: { text: string; cursor: number }, filled: string[],
     const argv = JSON.stringify(e)
     ran.push(argv)
     if (argv.includes('setsid')) return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
+    if (argv.includes('pgrep') || argv.includes('pkill')) return { value: { exitCode: 0, stdout: '', stderr: '' } } as any
     const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } }) as any
     if (argv.includes('/repo/many')) return out(Array.from({ length: 80 }, (_, i) => `f${String(i).padStart(2, '0')}.txt`).join('\n'))
     // -t の新しい順では、util.ts が最後に、app.ts が最初に更新された。
@@ -239,6 +240,31 @@ test('a click on a file\'s icon previews it; on a folder\'s, opens it', async ($
   const folder = (await cells(ui)).find(c => c.name === 'lib/')!
   await ui.pointer({ type: 'down', x: folder.x, y: folder.y, button: 'left', in: 'fp-grid' })
   expect(filled.at(-1)).toBe('@src/lib/')
+  await ui.unmount()
+})
+
+test('the same icon again closes the preview, another file switches, a blank click closes', async ($, on) => {
+  const box = { text: '', cursor: 0 }
+  const ran: string[] = []
+  engine(on, box, [], ran)
+  const ui = await band($)
+  await type($, box, '@src/')
+  const icon = async (name: string) => {
+    const c = (await cells(ui)).find(x => x.name === name)!
+    await ui.pointer({ type: 'down', x: c.x, y: c.y, button: 'left', in: 'fp-grid' })
+  }
+  const opened = () => ran.filter(r => r.includes('setsid')).length
+  // プレビューのスクリプト本文にも pkill が含まれるので、コマンド名として数える。
+  const closed = () => ran.filter(r => r.includes('"pkill"')).length
+  await icon('app.ts')
+  expect(opened()).toBe(1)
+  await icon('app.ts')
+  expect(closed(), 'the same file again closes it').toBe(1)
+  await icon('app.ts')
+  await icon('util.ts')
+  expect(opened(), 'another file opens in its place').toBe(3)
+  await ui.pointer({ type: 'down', x: 0, y: 30, button: 'left', in: 'fp-grid' })
+  expect(closed(), 'a click on blank space closes it').toBe(2)
   await ui.unmount()
 })
 

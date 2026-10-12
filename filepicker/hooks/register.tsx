@@ -367,6 +367,7 @@ async function recheck($: any) {
 // をそのまま選んだ場合はメンションを空白で閉じてブラウザを閉じる。フォルダを
 // 開いた場合は `@path/` のまま続け、ブラウザもそこへ移る。
 async function choose($: any, path: string, done: boolean) {
+  await closePeek($)
   const box = await $.prompt.read().catch(() => lastBox)
   const m = mentionAt(box.text, box.cursor)
   if (!m) {
@@ -385,6 +386,7 @@ async function choose($: any, path: string, done: boolean) {
 }
 
 async function sortBy($: any, sort: Sort) {
+  await closePeek($)
   const b = await read($, browser)
   if (b.sort === sort) return
   await update($, browser, x => ({ ...x, sort, page: 0 }))
@@ -392,16 +394,19 @@ async function sortBy($: any, sort: Sort) {
 }
 
 async function show($: any, kind: Kind, ext: string | null) {
+  await closePeek($)
   await update($, browser, x => ({ ...x, kind, ext, page: 0 }))
 }
 
 async function turn($: any, by: number) {
+  await closePeek($)
   await update($, browser, b => ({ ...b, page: Math.max(0, b.page + by) }))
 }
 
 // オンの間は、ファイルを押すとプロンプトに書き込まず、ブラウザを開いたまま
 // Quick Look で表示する。
 async function togglePreview($: any) {
+  await closePeek($)
   await update($, browser, b => ({ ...b, preview: !b.preview }))
 }
 
@@ -442,7 +447,30 @@ exit 0
 `
 
 // ファイルを Quick Look で表示する。ブラウザは開いたまま。
+// 今プレビューしているファイルのパス(メンションの書き方)。無ければ null。
+let peeking: string | null = null
+
+// プレビューを閉じる。開いていなければ何もしない。
+async function closePeek($: any) {
+  if (peeking === null) return
+  peeking = null
+  $.process.run(['pkill', '-x', 'qlmanage'], { timeoutMs: 3000 }).catch(() => undefined)
+}
+
+// 同じファイルをもう一度プレビューしようとしたら閉じる(トグル)。ただし利用者
+// が窓を自分で閉じていた場合は開き直す。別のファイルならそちらに切り替える。
 async function peek($: any, path: string) {
+  if (peeking === path) {
+    const open = await $.process
+      .run(['pgrep', '-x', 'qlmanage'], { timeoutMs: 3000 })
+      .then((r: any) => r.exitCode === 0)
+      .catch(() => false)
+    if (open) {
+      await closePeek($)
+      return
+    }
+  }
+  peeking = path
   const cwd = sessionCwd || (await $.session.cwd().catch(() => '.'))
   const file = resolveDir(path, cwd, home)
   // スクリプトはファイルに書かず sh の標準入力に渡す(他のプロセスにすり替えら
@@ -454,6 +482,7 @@ async function peek($: any, path: string) {
 }
 
 async function dismiss($: any) {
+  await closePeek($)
   await update($, browser, b => ({ ...closed, sort: b.sort, preview: b.preview }))
   listed = null
 }
@@ -693,6 +722,8 @@ export const register: Register = on => {
 
   on('prompt.edit', async ($, e, next) => {
     const r = await next(e)
+    // 文字を打ったら、プレビューは閉じる。
+    if (r.text !== e.text) await closePeek($)
     lastBox = { text: r.text, cursor: r.cursor }
     await follow($, r.text, r.cursor)
     return r
@@ -710,6 +741,11 @@ export const register: Register = on => {
   on('ui.message', async ($, e, next) => {
     if (e.element !== 'fp-grid') return next(e)
     const d = e.data as { kind?: string; path?: string; done?: boolean }
+    // 一覧の空き部分のクリックは、プレビューを閉じるだけ。
+    if (d?.kind === 'blank') {
+      await closePeek($)
+      return next(e)
+    }
     if (typeof d?.path !== 'string') return next(e)
     const preview = (await read($, browser)).preview
     if (d.kind === 'peek' || (preview && d.done)) await peek($, d.path)
