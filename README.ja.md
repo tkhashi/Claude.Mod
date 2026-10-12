@@ -7,15 +7,10 @@
 
 | Mod | 内容 |
 | --- | --- |
-| [statusbar](#statusbar) | プロンプトの上に出る vim 風のステータス帯。model、effort、パス、git、PR、worktree・サブエージェント、使用量ゲージ |
-| [filepicker](#filepicker) | `@` メンションを打っている間に開くファイル・フォルダブラウザ。Quick Look でのプレビュー付き |
+| [statusbar](statusbar/README.ja.md) | プロンプトの上に出る vim 風のステータス帯。model、effort、パス、git、PR、worktree・サブエージェント、使用量ゲージ |
+| [filepicker](filepicker/README.ja.md) | `@` メンションを打っている間に開くファイル・フォルダブラウザ。Quick Look でのプレビュー付き |
 
-## 必要なもの
-
-- mod(プラグインのフック)に対応した Claude Code
-- ターミナルに [Nerd Font](https://www.nerdfonts.com/) が設定されていること(Powerline と Nerd Font のグリフを使います)
-- filepicker の Quick Look プレビューには macOS(それ以外の機能は他の OS でも動きます)
-- `git`、PR の表示には [GitHub CLI](https://cli.github.com/)(`gh`)
+機能や必要なものは、各 mod の README を参照してください。
 
 ## インストール
 
@@ -35,28 +30,7 @@ claude plugin update statusbar@local-mods
 claude plugin update filepicker@local-mods
 ```
 
-## statusbar
-
-プロンプトの上に、角丸のベタ塗りブロックで帯を描きます。
-
-- **1行目**: model(クリックで切替)と effort(クリックで切替)、右側に worktree 一覧・サブエージェント一覧・コンパクト表示のボタン
-- **2行目**: 作業ディレクトリ、ブランチ(push 待ち `↑`・pull 待ち `↓`・未コミット `±`)、PR とレビュー状態
-- **使用量ゲージ**: 5時間・7日間の上限、コンテキスト、auto-compact を、プロンプト下のヒント行に表示します。ターミナルが細くなると%だけの表示まで縮み、5h・7d は常に見えるようにしています
-- **コンパクト表示**: 全部を1行にまとめます。切替ボタンは常に右端です
-- Claude の返答とユーザーのプロンプトに、左側の色付きの縦線を付けて見分けやすくします
-
-worktree は、プロジェクト自身の `.claude/worktrees/`(または `.claude/worktree/`)の下にあるものだけを表示します。
-
-## filepicker
-
-プロンプトで `@` を打つと、Claude Code 本体の候補と並んで、帯の上にブラウザが開きます。
-
-- 続けて打つと絞り込みます。`@src/` で `src/` を開き、`@src/ut` で `ut` で始まる・含む項目を出します
-- フォルダをクリックすると中に入り、ファイル名をクリックすると `@path` として挿入します。空白を含む名前は `@"My Docs/a.txt"` の形で書き込みます
-- ファイルの**アイコン**をクリックすると Quick Look でプレビューします(TOML や `.gitignore` など Quick Look が描けないテキストはプレーンテキストとして開きます)
-- クリックできるパンくず、`..` の項目、`..` を含むパスでは実際の場所を表示
-- 更新日時順(既定)・名前順・サイズ順のソート、フォルダ・ファイル・拡張子での絞り込み
-- 項目の多いフォルダはページ送り。ファイルの種類ごとのアイコンと色は [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) を利用
+どちらの mod も、mod(プラグインのフック)に対応した Claude Code と、ターミナルに設定された [Nerd Font](https://www.nerdfonts.com/) が必要です。
 
 ## 開発
 

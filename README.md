@@ -7,15 +7,10 @@ Mods (plugins) for [Claude Code](https://claude.com/claude-code) that reshape it
 
 | Mod | What it does |
 | --- | --- |
-| [statusbar](#statusbar) | A vim-style powerline band above the prompt: model, effort, path, git, PR, worktrees and subagents, plus usage gauges |
-| [filepicker](#filepicker) | A file and folder browser that opens while you type an `@` mention, with Quick Look preview |
+| [statusbar](statusbar/README.md) | A vim-style powerline band above the prompt: model, effort, path, git, PR, worktrees and subagents, plus usage gauges |
+| [filepicker](filepicker/README.md) | A file and folder browser that opens while you type an `@` mention, with Quick Look preview |
 
-## Requirements
-
-- Claude Code with mod (plugin hooks) support
-- A [Nerd Font](https://www.nerdfonts.com/) in your terminal; the mods draw Powerline and Nerd Font glyphs
-- macOS for filepicker's Quick Look preview (everything else works on other platforms)
-- `git` and, for the PR block, the [GitHub CLI](https://cli.github.com/) (`gh`)
+See each mod's README for its features and requirements.
 
 ## Install
 
@@ -35,28 +30,7 @@ claude plugin update statusbar@local-mods
 claude plugin update filepicker@local-mods
 ```
 
-## statusbar
-
-A band of solid, rounded blocks above the prompt.
-
-- **Row 1**: the model (click to switch) and the effort (click to switch), then buttons for the worktree list, the subagent list, and compact mode
-- **Row 2**: the working directory, the branch with commits to push `↑`, to pull `↓` and uncommitted files `±`, and the pull request with its review state
-- **Usage gauges** for the 5-hour and 7-day limits, the context window and auto-compact sit on the hint line under the prompt. As the terminal narrows they shrink to bare percentages, and 5h/7d always stay in sight
-- **Compact mode** puts everything on one row; the switch stays at the right end
-- Claude's replies and your prompts get a colored gutter on the left so you can tell them apart
-
-Worktrees are listed only from the project's own `.claude/worktrees/` (or `.claude/worktree/`).
-
-## filepicker
-
-Type `@` in the prompt and a browser opens above the band, alongside Claude Code's own suggestions.
-
-- Typing narrows it: `@src/` opens `src/`, `@src/ut` lists entries starting with or containing `ut`
-- Click a folder to open it, a file's name to insert it as `@path`; names with spaces are written as `@"My Docs/a.txt"`
-- Click a file's **icon** to preview it in Quick Look (text files Quick Look cannot draw, such as TOML or `.gitignore`, open as plain text)
-- Clickable breadcrumbs, a `..` entry, and the real location shown for paths through `..`
-- Sort by modified time (default), name or size; filter by folders, files or extension
-- Paging for large folders; icons and colors per file type from [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
+Both mods need Claude Code with mod (plugin hooks) support and a [Nerd Font](https://www.nerdfonts.com/) in your terminal.
 
 ## Development
 
