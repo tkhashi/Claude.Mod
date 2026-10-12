@@ -1,0 +1,18 @@
+{
+  "name": "local-mods",
+  "owner": {
+    "name": "kazuhiro.takahashi"
+  },
+  "plugins": [
+    {
+      "name": "statusbar",
+      "source": "./statusbar",
+      "description": "Vim-style powerline statusline above the prompt"
+    },
+    {
+      "name": "filepicker",
+      "source": "./filepicker",
+      "description": "Browse and pick files and folders above the prompt while an @ mention is typed"
+    }
+  ]
+}
