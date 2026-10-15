@@ -106,8 +106,8 @@ const pane = ($: any, bodyColumns = 70, placement = 'dock') =>
     props: { title: 'Peek', isFocused: true, bodyColumns, placement, scroll: { offset: 0, bodyRows: 30 }, view: {} },
   } as any)
 
-const peek = ($: any, columns = 70) =>
-  $.command.run({ command: 'peek', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns } } as any)
+const peek = ($: any, columns = 70, args = '') =>
+  $.command.run({ command: 'peek', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns } } as any)
 
 const pos = async (ui: any) => (await ui.find({ key: 'peek-pos' }))?.text
 const markdown = async (ui: any) => (await ui.findAll({ type: 'Markdown' })).map((m: any) => m.props.text)
@@ -341,7 +341,7 @@ test('a folded group unfolds, so each call draws as its own row; pressing a row 
   await row.unmount()
 })
 
-test('Claude’s messages between tool calls draw on a gray background in the transcript; the last message is left as drawn', async ($, on) => {
+test('Claude’s messages draw with a gutter: a message a tool call followed on gray, the turn’s last one tinted', async ($, on) => {
   engine(on, [], [])
   on('turn.step', async function* (_$, e) {
     yield { kind: 'text', index: 0, text: 'Checking the ' } as any
@@ -355,14 +355,29 @@ test('Claude’s messages between tool calls draw on a gray background in the tr
 
   const live = await mount($, 'AssistantMessage', { text: 'Checking the tests now.', isFirstOfReply: true })
   const last = await mount($, 'AssistantMessage', { text: 'Done.', isFirstOfReply: true })
-  expect(await live.find({ key: 'peek-mid' })).toBeUndefined()
+  const bg = async (ui: any) => (await ui.find({ key: 'peek-gutter' }))?.props.backgroundColor
+  expect((await live.find({ key: 'peek-gutter' }))?.props).toMatchObject({ borderStyle: 'quote', borderColor: '#d97757', paddingX: 1, paddingTop: 1, paddingBottom: 1 })
+  expect(await bg(live)).toBeUndefined()
+  expect(await markdown(live)).toEqual(['Checking the tests now.'])
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 } as any)) {
   }
-  expect((await live.find({ key: 'peek-mid' }))?.props.backgroundColor, 'gray once a call follows it').toBe('ansi256(236)')
-  expect(await engines(live, 'AssistantMessage'), 'drawn by the engine, over the gray').toBe(true)
-  expect(await last.find({ key: 'peek-mid' })).toBeUndefined()
+  expect(await bg(live), 'gray once a call follows it').toBe('#303030')
+  expect(await bg(last), 'the turn’s last message, read from the conversation').toBe('#312732')
+  expect(await engines(live, 'AssistantMessage')).toBe(false)
   await live.unmount()
   await last.unmount()
+})
+
+test('your prompts draw with a sky-blue gutter on a blue-gray band; other parties’ rows are the engine’s', async ($, on) => {
+  engine(on, [], [])
+  const typed = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
+  expect((await typed.find({ key: 'peek-gutter' }))?.props).toMatchObject({ borderStyle: 'quote', borderColor: '#89dceb', backgroundColor: '#2d3948', paddingX: 1, paddingTop: 1 })
+  expect(await typed.find({ key: 'peek-levels' }), 'the level buttons fill its last row').toBeDefined()
+  expect(await texts(typed)).toContain('fix the bug')
+  const told = await mount($, 'UserMessage', { text: 'hi', origin: { kind: 'peer' }, from: { kind: 'agent' }, isExpanded: false })
+  expect(await engines(told, 'UserMessage')).toBe(true)
+  await typed.unmount()
+  await told.unmount()
 })
 
 test('a single tool row folds to one line and its result block is hidden; pressing it opens its turn', async ($, on) => {
@@ -401,7 +416,8 @@ test('a summary row opens the turn whose steps hold its thinking; other replies 
   await summary.unmount()
 
   const reply = await mount($, 'AssistantMessage', { text: 'Done.', isFirstOfReply: true })
-  expect(await engines(reply, 'AssistantMessage')).toBe(true)
+  expect(await engines(reply, 'AssistantMessage')).toBe(false)
+  expect(await markdown(reply)).toEqual(['Done.'])
   await reply.unmount()
 })
 
@@ -481,4 +497,86 @@ test('on the latest page it moves on to new pages as the conversation runs; on a
   await ui.press({ key: 'peek-next' })
   expect(await markdown(ui)).toEqual(['Reading them.', 'They are fine.'])
   await ui.unmount()
+})
+
+test('three levels: 2 hides the tool calls, 3 also Claude’s messages along the way; the buttons on any prompt or answer switch the whole transcript', async ($, on) => {
+  const messages: unknown[] = [...MESSAGES]
+  engine(on, [], [], messages)
+  let chunks: unknown[] = []
+  on('turn.step', async function* (_$, e) {
+    for (const c of chunks) yield c as any
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null } as any
+  })
+  on('turn.complete', async (_$, e) => ({ text: e.answer }) as any)
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 } as any)) {
+  }
+  await $.turn.complete({ turnId: 't1', answer: 'Done.', durationMs: 1, isAborted: false, reason: 'answer' } as any)
+
+  const prompt = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
+  const calls = [await tool($, CALLS[0]!), await tool($, BASH)]
+  const step = await mount($, 'AssistantMessage', { text: 'Found it.', isFirstOfReply: true })
+  const summary = await mount($, 'AssistantMessage', { text: 'The off-by-one is in the loop bound.', isFirstOfReply: true, isSummary: true })
+  const answer = await mount($, 'AssistantMessage', { text: 'Done.', isFirstOfReply: true })
+  const other = await tool($, { ...BASH, tool_use_id: 'toolu_x' })
+  const shown = async (ui: any) => (await ui.find({ key: 'peek-hidden' })) === undefined
+  // 塗られている(選ばれている)ボタンの名前。
+  const current = async (ui: any) => (await ui.findAll({ type: 'Text' })).find((t: any) => t.props.color === '#1e1e2e')?.text.trim()
+
+  expect((await prompt.find({ key: 'peek-levels' }))?.text).toBe('show  all  no tools  answers ')
+  expect(await current(prompt)).toBe('all')
+  expect(await current(answer), 'the answer has the buttons too').toBe('all')
+  expect(await step.find({ key: 'peek-levels' }), 'a message along the way has none').toBeUndefined()
+  for (const row of [...calls, step, summary, answer]) expect(await shown(row)).toBe(true)
+
+  await prompt.press({ key: 'peek-level-2' })
+  expect(await current(prompt)).toBe('no tools')
+  expect(await current(answer)).toBe('no tools')
+  for (const row of calls) expect(await shown(row), 'level 2 hides the calls').toBe(false)
+  expect(await other.find({ key: 'peek-row' }), 'a call the conversation does not hold (a subagent’s) keeps its line').toBeDefined()
+  for (const row of [step, summary, answer]) expect(await shown(row)).toBe(true)
+  expect((await step.find({ key: 'peek-gutter' }))?.props.backgroundColor).toBe('#303030')
+
+  await answer.press({ key: 'peek-level-3' })
+  expect(await current(prompt)).toBe('answers')
+  for (const row of [...calls, step, summary]) expect(await shown(row), 'level 3 leaves the prompt and the answer').toBe(false)
+  expect((await answer.find({ key: 'peek-gutter' }))?.props.backgroundColor).toBe('#312732')
+
+  // 進んでいるターンの呼び出しは、届いたそばから隠す。
+  messages.push({ role: 'user', content: [{ type: 'text', text: 'and the docs' }] })
+  chunks = [
+    { kind: 'text', index: 0, text: 'Reading them.' },
+    { kind: 'tool', index: 1, id: 'toolu_7', name: 'Read' },
+  ]
+  for await (const _ of $.turn.step({ turnId: 't2', index: 0, model: 'm', messageCount: 9 } as any)) {
+  }
+  const live = await tool($, { tool_use_id: 'toolu_7', tool: 'Read', input: { file_path: '/repo/README.md' }, isRunning: true, isErrored: false, isInterrupted: false })
+  const said = await mount($, 'AssistantMessage', { text: 'Reading them.', isFirstOfReply: true })
+  expect(await shown(live)).toBe(false)
+  expect(await shown(said)).toBe(false)
+
+  await prompt.press({ key: 'peek-level-2' })
+  expect(await current(answer)).toBe('no tools')
+  expect(await shown(said), 'back at 2, the messages along the way return').toBe(true)
+  expect((await peek($, 70, '1'))?.text).toBe('Level 1: prompts, Claude’s messages, tool calls and answers')
+  for (const row of [...calls, live]) expect(await row.find({ key: 'peek-row' })).toBeDefined()
+  for (const row of [prompt, ...calls, step, summary, answer, other, live, said]) await row.unmount()
+})
+
+test('under ctrl+o every row is drawn whatever the level, and the prompt has no level buttons', async ($, on) => {
+  engine(on, [], [])
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } as any
+  })
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 } as any)) {
+  }
+  await peek($, 70, '3')
+  const prompt = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: true })
+  expect(await prompt.find({ key: 'peek-levels' })).toBeUndefined()
+  const step = await mount($, 'AssistantMessage', { text: 'Found it.', isFirstOfReply: true })
+  expect(await step.find({ key: 'peek-gutter' })).toBeDefined()
+  const row = await tool($, CALLS[1]!)
+  expect(await engines(row, 'ToolUse')).toBe(true)
+  for (const ui of [prompt, step, row]) await ui.unmount()
+  const back = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
+  await back.unmount()
 })

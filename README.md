@@ -9,7 +9,7 @@ Mods (plugins) for [Claude Code](https://claude.com/claude-code) that reshape it
 | --- | --- |
 | [statusbar](statusbar/README.md) | A vim-style powerline band above the prompt: model, effort, path, git, PR, worktrees and subagents, plus usage gauges |
 | [filepicker](filepicker/README.md) | A file and folder browser that opens while you type an `@` mention, with Quick Look preview |
-| [peek](peek/README.md) | Folds each tool call in the transcript to one line (results hidden), and shows the conversation in a pane a page at a time: under your prompt, the thinking and tool calls between two of Claude's messages, each call's input and result shown or folded per call, the other pages a press away |
+| [peek](peek/README.md) | Colors your prompts and Claude's messages with a gutter, folds each tool call in the transcript to one line (results hidden), and shows the conversation in a pane a page at a time: under your prompt, the thinking and tool calls between two of Claude's messages, each call's input and result shown or folded per call, the other pages a press away. The transcript has three levels: everything, without the tool lines, or your prompts and Claude's answers alone |
 
 See each mod's README for its features and requirements.
 

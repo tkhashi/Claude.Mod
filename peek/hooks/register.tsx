@@ -40,6 +40,33 @@ const pane = atom({ plugin: 'peek', key: 'pane' } as const, closed)
 let mids: string[] = []
 const marks = atom({ plugin: 'peek', key: 'marks' } as const, 0)
 
+// トランスクリプトの詳しさ。1 はすべて(途中の発言、1行に畳んだツール呼び出し)、
+// 2 はツール呼び出しを隠し、3 は途中の発言と要約の行も隠して、プロンプトと Claude
+// の最後の発言だけにする。プロンプトと最後の発言のブロックの右下のボタンか
+// `/peek 1|2|3` で切り替え、ストアに覚えておく。
+export type Level = 1 | 2 | 3
+let level: Level = 1
+const LEVEL_KEY = 'level'
+// 前の版のまとめ表示のオン・オフ。オンだったら 3 から始める。
+const COMPACT_KEY = 'compact'
+// ボタンの名前。狭いトランスクリプトでは短くする。
+const LEVEL_NAMES: Record<Level, { wide: string; narrow: string }> = {
+  1: { wide: 'all', narrow: 'all' },
+  2: { wide: 'no tools', narrow: 'msgs' },
+  3: { wide: 'answers', narrow: 'ans' },
+}
+const LEVELS: Record<Level, string> = {
+  1: 'Level 1: prompts, Claude’s messages, tool calls and answers',
+  2: 'Level 2: prompts, Claude’s messages and answers',
+  3: 'Level 3: prompts and answers',
+}
+// ターンの最後の発言(答え)の本文を詰めたもの。量が多いのでストアには置かず、変
+// えたら marks を上げる。
+let finals: string[] = []
+// 本体の会話のツール呼び出しの id。2 と 3 ではこれらの行を隠す。サブエージェン
+// トの画面の行は知らないので、いつもどおり1行ずつ描く。
+let callIds = new Set<string>()
+
 // 読み込んだ会話のターンと、それがどのエージェントの会話か(本体は null)。量が
 // 多いのでストアには置かず、変えたら pane の version を上げて描き直させる。
 let turns: Turn[] = []
@@ -54,9 +81,9 @@ let isLightTheme = false
 const lightOf = (theme: unknown) => typeof theme === 'string' && theme.startsWith('light')
 const summaryBg = () => (isLightTheme ? 'ansi256(254)' : 'ansi256(236)')
 // 会話の中の背景。プロンプト、Claude の最後の発言、途中の発言、ツール呼び出し
-// の見出し、その入力と結果、失敗した結果。発言はトランスクリプト(statusbar が描
-// くもの)と同じく、プロンプトは水色、最後の発言は Claude の色を薄く敷き、途中の
-// 発言は灰色にする。左の縦線の色(user、claude)もそれに合わせる。
+// の見出し、その入力と結果、失敗した結果。トランスクリプトの発言とペインで同じ
+// 色を使い、プロンプトは水色、最後の発言は Claude の色を薄く敷き、途中の発言は
+// 灰色にする。左の縦線の色(user、claude)もそれに合わせる。
 const SHADES = {
   dark: {
     prompt: '#2d3948',
@@ -68,6 +95,8 @@ const SHADES = {
     input: '#1e2430',
     result: '#1f2722',
     error: '#3b2226',
+    chip: '#1e1e2e',
+    hover: '#45475a',
   },
   light: {
     prompt: '#e1f0f5',
@@ -79,6 +108,8 @@ const SHADES = {
     input: '#e8eef8',
     result: '#e9f3eb',
     error: '#f9e4e4',
+    chip: '#ffffff',
+    hover: '#ccd0da',
   },
 }
 const shades = () => (isLightTheme ? SHADES.light : SHADES.dark)
@@ -180,6 +211,14 @@ const squash = (text: string) => text.replace(/\s+/g, ' ').trim()
 export const midsOf = (list: readonly Turn[]) =>
   list.flatMap(turn => turn.steps.flatMap((s, i) => (s.kind === 'text' && i < turn.steps.length - 1 ? [squash(s.text)] : [])))
 
+// ターンの最後の発言(答え)の本文。最後の一歩が発言で終わったターンの、その発言
+// を詰めて返す。
+export const finalsOf = (list: readonly Turn[]) =>
+  list.flatMap(turn => {
+    const last = turn.steps[turn.steps.length - 1]
+    return last?.kind === 'text' ? [squash(last.text)] : []
+  })
+
 // トランスクリプトの発言の行が途中の発言か。行は1ブロックずつで、続くブロッ
 // クをまとめた発言の一部のことがあるので、短すぎない行は含まれていればよい。
 export const isMid = (list: readonly string[], text: string) => {
@@ -251,14 +290,21 @@ async function conversation($: any, agent: string | null): Promise<Turn[] | null
   }
 }
 
-// 途中の発言を会話から数え直す。変わったら発言の行を描き直させる。
+// 途中の発言、最後の発言、ツール呼び出しを会話から数え直す。変わったら行を描き直
+// させる。
 async function recount($: any) {
   const list = await conversation($, null)
   if (!list) return
   const found = midsOf(list)
-  if (found.length === mids.length && found.every((m, i) => m === mids[i])) return
+  const answers = finalsOf(list)
+  let changed =
+    found.length !== mids.length || found.some((m, i) => m !== mids[i]) || answers.length !== finals.length || answers.some((m, i) => m !== finals[i])
   mids = found
-  await update($, marks, n => n + 1)
+  finals = answers
+  const ids = list.flatMap(turn => turn.steps.flatMap(s => (s.kind === 'call' ? [s.call.id] : [])))
+  changed ||= ids.some(id => !callIds.has(id))
+  callIds = new Set([...callIds, ...ids])
+  if (changed) await update($, marks, n => n + 1)
 }
 
 // 本体の会話から探し、無ければ(サブエージェントの画面で押した)各エージェント
@@ -423,6 +469,14 @@ async function openAt($: any, target: Target, drawn: Turn) {
     },
     ['start', { key: found.key, block: 'nearest' }],
   )
+}
+
+// トランスクリプトの詳しさを変える。ストアに覚え、描いてある行を描き直させる。
+async function setLevel($: any, to: Level) {
+  level = to
+  await $.store.set(LEVEL_KEY, to).catch(() => undefined)
+  await update($, marks, n => n + 1)
+  $.ui.invalidate('ui.render')
 }
 
 // `/peek`。閉じていれば最新のページで開き、開いていれば閉じる。
@@ -721,6 +775,42 @@ export const toolLine = (tool: string, input: unknown, meta: string, columns: nu
   return `(${fit(subject, Math.max(10, columns - GUTTER - 2 - frame), PATH_KEYS.includes(key ?? ''))})`
 }
 
+// トランスクリプトの詳しさを選ぶボタンの並び(`show  all  no tools  answers`)。
+// ブロックの最後の行の右端に置く。今の段階はブロックの縦線の色で塗り、他は指を
+// 載せると明るくする。押すと、トランスクリプト全体がその段階になる。
+function drawLevels($: any, e: any, bg: string, accent: string) {
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const sh = shades()
+  const narrow = (e.viewport?.columns ?? terminal.columns) < 50
+  return (
+    <Box key="peek-levels" flexDirection="row" justifyContent="flex-end">
+      {narrow ? null : (
+        <Text backgroundColor={bg} dimColor>
+          {'show '}
+        </Text>
+      )}
+      {([1, 2, 3] as const).map(n => {
+        const name = ` ${narrow ? LEVEL_NAMES[n].narrow : LEVEL_NAMES[n].wide} `
+        return (
+          <Box key={`peek-level-${n}-box`} flexShrink={0}>
+            <Button key={`peek-level-${n}`} plain onPress={() => setLevel($, n)}>
+              {n === level ? (
+              <Text key={`peek-level-${n}-name`} backgroundColor={accent} color={sh.chip} bold>
+                {name}
+              </Text>
+            ) : (
+              <Text key={`peek-level-${n}-name`} backgroundColor={bg} dimColor hover={{ backgroundColor: sh.hover }}>
+                {name}
+              </Text>
+            )}
+            </Button>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
 // MARK: ペインの中身
 
 // 描く所とその幅。
@@ -820,7 +910,7 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
     const cut = lines.length > keep
     const bg = sh.prompt
     return (
-      <Box key={`peek-prompt-${t}`} flexDirection="row" borderStyle="quote" borderColor={sh.user} backgroundColor={bg} paddingLeft={1}>
+      <Box key={`peek-prompt-${t}`} flexDirection="row" borderStyle="quote" borderColor={sh.user} backgroundColor={bg} paddingX={1} paddingY={1}>
         <Box key={`peek-prompt-${t}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
           <Text backgroundColor={bg} bold>
             {(cut && !v.prompt ? lines.slice(0, keep) : lines).join('\n')}
@@ -845,7 +935,7 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
     if (step?.kind !== 'text') return null
     const bg = i === turn.steps.length - 1 ? sh.reply : sh.message
     return (
-      <Box key={key} flexDirection="row" borderStyle="quote" borderColor={sh.claude} backgroundColor={bg} paddingLeft={1}>
+      <Box key={key} flexDirection="row" borderStyle="quote" borderColor={sh.claude} backgroundColor={bg} paddingX={1} paddingY={1}>
         <Box key={`${key}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
           <Markdown text={clip(step.text, MAX_CHARS)} />
         </Box>
@@ -996,13 +1086,20 @@ export const register: Register = on => {
     await $.command
       .register({
         name: PANE,
-        description: "Read the conversation in a pane a page at a time: under your prompt, what Claude did between two of its messages",
+        description:
+          'Read the conversation in a pane a page at a time: under your prompt, what Claude did between two of its messages. `/peek 1|2|3` sets how much the transcript shows',
+        argumentHint: '[1|2|3]',
         immediate: true,
       })
       .catch(() => undefined)
+    const stored = await $.store.get(LEVEL_KEY).catch(() => undefined)
+    level = stored === 1 || stored === 2 || stored === 3 ? stored : (await $.store.get(COMPACT_KEY).catch(() => undefined)) === true ? 3 : 1
     const rows = await $.config.list().catch(() => [])
     isLightTheme = lightOf(rows.find(row => row.key === 'theme')?.value)
-    void recount($).catch(() => undefined)
+    // モジュールが読み直されたときは、描いてある行も描き直させる。
+    void recount($)
+      .then(() => $.ui.invalidate('ui.render'))
+      .catch(() => undefined)
     // モジュールが読み直されたときは、開いていた会話を読み直して描き直す。前の
     // 版で帯に開いていたものはペインに開く。
     if ((await read($, pane)).open) {
@@ -1021,7 +1118,12 @@ export const register: Register = on => {
     return r
   })
 
-  on('command.run', { command: PANE }, async $ => {
+  on('command.run', { command: PANE }, async ($, e) => {
+    const arg = e.args.trim()
+    if (arg === '1' || arg === '2' || arg === '3') {
+      await setLevel($, Number(arg) as Level)
+      return { text: LEVELS[level] }
+    }
     await toggle($)
     return {}
   })
@@ -1043,20 +1145,25 @@ export const register: Register = on => {
   // ンの終わりで読み直す。
   // 本体の応答で発言の後にツールの呼び出しが来たら、その発言は途中の発言。応答
   // が届くそばから灰色にする。
+  // 応答の前に会話を数え直し、届いた呼び出しはそのそばから隠せるようにする。
   on('turn.step', async function* ($, e, next) {
     if ((e.agentId ?? null) === agentId) void reload($).catch(() => undefined)
     if (e.agentId) return yield* next(e)
+    await recount($).catch(() => undefined)
     const blocks = new Map<number, string>()
     let marked = false
     for await (const c of next(e)) {
       if (c.kind === 'text') blocks.set(c.index, (blocks.get(c.index) ?? '') + c.text)
-      else if (c.kind === 'tool' && !marked) {
-        marked = true
-        const said = [...blocks.values()].map(squash).filter(s => s !== '' && !mids.includes(s))
-        if (said.length > 0) {
-          mids = [...mids, ...said]
-          await update($, marks, n => n + 1)
+      else if (c.kind === 'tool') {
+        let changed = !callIds.has(c.id)
+        callIds.add(c.id)
+        if (!marked) {
+          marked = true
+          const spoken = [...blocks.values()].map(squash).filter(s => s !== '' && !mids.includes(s))
+          mids = [...mids, ...spoken]
+          changed ||= spoken.length > 0
         }
+        if (changed) await update($, marks, n => n + 1)
       }
       yield c
     }
@@ -1064,27 +1171,59 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const r = await next(e)
     void reload($).catch(() => undefined)
+    if (!e.agentId) {
+      const answer = squash(e.answer ?? '')
+      if (e.reason === 'answer' && answer !== '' && !finals.includes(answer)) finals = [...finals, answer]
+      await recount($).catch(() => undefined)
+      await update($, marks, n => n + 1)
+    }
     return r
   })
 
   // プロンプトの行(打ち込んだもの、SDK やリモートから来たもの)は、ctrl+o や
   // --verbose で全部見せているかを知っている。他の人の発言とタスクの通知の行は、
   // 見出しの下に収まるかで変わるので使わない。変わったら、ツールの行を描き直させる。
+  // 本人のプロンプトは、左に水色の縦線を引き、青みの灰色の背景に描く。最後の行の
+  // 右端に、トランスクリプトの詳しさを選ぶボタンを置く。
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    if (e.surface === 'terminal' && !e.props.from && !e.props.task && e.props.isExpanded !== isExpandedView) {
+    if (e.surface !== 'terminal') return next(e)
+    const own = !e.props.from && !e.props.task
+    if (own && e.props.isExpanded !== isExpandedView) {
       isExpandedView = e.props.isExpanded
       $.ui.invalidate('ui.render')
     }
-    return next(e)
+    // 打ち込んだもの。記録が出どころを持つ前の版で保存されたものも含める。
+    if (!own || (e.props.origin.kind !== 'composer' && e.props.origin.kind !== 'unclassified')) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    await read($, marks)
+    const sh = shades()
+    const bg = sh.prompt
+    return (
+      <Box
+        key="peek-gutter"
+        flexDirection="column"
+        borderStyle="quote"
+        borderColor={sh.user}
+        backgroundColor={bg}
+        paddingX={1}
+        paddingTop={1}
+        paddingBottom={isExpandedView ? 1 : 0}
+      >
+        <Text>{e.props.text}</Text>
+        {isExpandedView ? null : drawLevels($, e, bg, sh.user)}
+      </Box>
+    )
   })
 
   // 1つずつのツールの行(Write、Edit、Bash など)。1行に畳んで押せるようにし、
-  // 押すとその呼び出しのターンを開く。
+  // 押すとその呼び出しのターンを開く。2 と 3 では隠す。
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     remember(e.viewport)
     if (e.surface !== 'terminal' || isExpandedView) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const row = e.props
+    await read($, marks)
+    if (level >= 2 && callIds.has(row.tool_use_id)) return <Box key="peek-hidden" />
     const meta = metaOf(row)
     const call: Call = {
       id: row.tool_use_id,
@@ -1129,26 +1268,44 @@ export const register: Register = on => {
     return next({ ...e, props: { ...e.props, isExpanded: true } })
   })
 
-  // ツール呼び出しの合間の Claude の発言は、最後の発言と見分けられるよう灰色の
-  // 背景にする。描くのは下(本体や他の mod)に任せ、背景だけ敷く。要約の行は、点
-  // を付けず上下に1行ずつ空けた灰色の帯にする。押すと、要約の元の thinking を含
-  // むターンを開く。
+  // Claude の発言は、左に Claude の色の縦線を引いて描く。ターンの最後の発言(答え)
+  // は薄い Claude の色、ツール呼び出しの合間の途中の発言は灰色の背景にする。最後
+  // の発言には、プロンプトと同じく詳しさを選ぶボタンを置く。要約
+  // の行は、点を付けず上下に1行ずつ空けた灰色の帯にする。押すと、要約の元の
+  // thinking を含むターンを開く。3 では、途中の発言と要約の行を隠す。
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     remember(e.viewport)
     if (e.surface !== 'terminal') return next(e)
-    if (!e.props.isSummary) {
-      await read($, marks)
-      if (!isMid(mids, e.props.text)) return next(e)
+    await read($, marks)
+    const text = e.props.text
+    const isFinal = !e.props.isSummary && isMid(finals, text)
+    const isStep = !isFinal && !e.props.isSummary && isMid(mids, text)
+    if (level >= 3 && !isExpandedView && (e.props.isSummary || isStep)) {
       const { Box } = $.ui.resolve(e)
-      const drawn = await next(e)
+      return <Box key="peek-hidden" />
+    }
+    if (!e.props.isSummary) {
+      const { Box, Markdown } = $.ui.resolve(e)
+      const sh = shades()
+      const bg = isFinal ? sh.reply : isStep ? sh.message : undefined
+      const controls = isFinal && !isExpandedView
       return (
-        <Box key="peek-mid" flexDirection="column" backgroundColor={summaryBg()}>
-          {drawn}
+        <Box
+          key="peek-gutter"
+          flexDirection="column"
+          borderStyle="quote"
+          borderColor={sh.claude}
+          backgroundColor={bg}
+          paddingX={1}
+          paddingTop={1}
+          paddingBottom={controls ? 0 : 1}
+        >
+          <Markdown text={text} />
+          {controls ? drawLevels($, e, sh.reply, sh.claude) : null}
         </Box>
       )
     }
     const { Box, Text, Button } = $.ui.resolve(e)
-    const text = e.props.text
     const drawn: Turn = { prompt: '', steps: [{ kind: 'thinking', text }], reply: -1 }
     const bg = summaryBg()
     return (
