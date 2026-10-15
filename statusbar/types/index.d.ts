@@ -25,6 +25,6 @@ export type Picker = 'model' | 'effort' | null
 
 declare module 'claude-code' {
   interface PluginState {
-    statusbar: { snap: Snap; view: View; picker: Picker; finals: string[]; mids: number }
+    statusbar: { snap: Snap; view: View; picker: Picker }
   }
 }
