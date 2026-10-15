@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { fitGauges, midsOf } from './register'
+import { fitGauges } from './register'
 
 // プラグインの下にあるエンジン部分。本体の描画、モデルのステップ、ストア、時
 // 計。
@@ -9,10 +9,6 @@ const engine = (on: On, ran: { command: string; args: string }[] = [], chunks: u
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text key="engine-band" />
-  })
-  on('ui.render', { component: 'AssistantMessage' }, async ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text key="engine-reply" />
   })
   on('turn.step', async function* (_$, e) {
     for (const c of chunks) yield c as any
@@ -78,84 +74,6 @@ test('worktrees and subagents open one at a time, and a row press closes them', 
   await ui.press({ key: 'ag-h-b' })
   expect(await ui.find({ type: 'Text', text: /^Subagents$/ }), 'closed by a row press').toBeUndefined()
   await ui.unmount()
-})
-
-test('the person\'s prompts have a gutter of their own', async ($, on) => {
-  engine(on)
-  on('ui.render', { component: 'UserMessage' }, async ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text key="engine-user" />
-  })
-  const msg = await $.ui.mount({
-    plugin: 'statusbar',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'fix the band', origin: { kind: 'composer' }, isExpanded: false },
-  } as any)
-  expect(await msg.find({ type: 'Text', text: 'fix the band' })).toBeDefined()
-  expect(await msg.find({ type: 'Box', key: 'gutter' })).toBeDefined()
-  await msg.unmount()
-})
-
-test('only the final answer of a turn gets a background', async ($, on) => {
-  engine(on)
-  const msg = async (text: string) =>
-    $.ui.mount({
-      plugin: 'statusbar',
-      surface: 'terminal',
-      component: 'AssistantMessage',
-      props: { text, isFirstOfReply: true },
-    } as any)
-  const mid = await msg('Let me look.')
-  const last = await msg('Done.\n')
-  const bg = async (ui: any) => ((await ui.find({ type: 'Box', key: 'gutter' })) as any)?.props?.backgroundColor
-  expect(await bg(mid), 'no background before the turn ends').toBeUndefined()
-  expect(await bg(last)).toBeUndefined()
-  await $.turn.complete({ turnId: 't1', answer: 'Done.', durationMs: 1, isAborted: false, reason: 'answer' } as any)
-  expect(await bg(mid), 'a mid-turn reply stays plain').toBeUndefined()
-  expect(await bg(last), 'the final answer is redrawn with a background').toEqual(expect.stringMatching(/^#/))
-  await mid.unmount()
-  await last.unmount()
-})
-
-test('a reply followed by a tool call is a mid-turn message and gets a gray background', async ($, on) => {
-  engine(on, [], [
-    { kind: 'text', index: 0, text: 'Let me ' },
-    { kind: 'text', index: 0, text: 'look.' },
-    { kind: 'tool', index: 1, id: 'toolu_1', name: 'Read' },
-  ])
-  expect(
-    midsOf([
-      { role: 'user', content: [{ type: 'text', text: 'fix it' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'Reading.' }, { type: 'tool_use', id: 't1', name: 'Read', input: {} }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }, { type: 'text', text: '<system-reminder>r</system-reminder>' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'Found it.' }] },
-      { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'Edit', input: {} }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
-      { role: 'user', content: [{ type: 'text', text: 'thanks' }] },
-    ]),
-    'messages a tool call followed before the next prompt',
-  ).toEqual(['Reading.', 'Found it.'])
-
-  const msg = async (text: string) =>
-    $.ui.mount({
-      plugin: 'statusbar',
-      surface: 'terminal',
-      component: 'AssistantMessage',
-      props: { text, isFirstOfReply: true },
-    } as any)
-  const mid = await msg('Let me look.')
-  const last = await msg('Done.')
-  const bg = async (ui: any) => ((await ui.find({ type: 'Box', key: 'gutter' })) as any)?.props?.backgroundColor
-  expect(await bg(mid)).toBeUndefined()
-  await step($, 'Sonnet 5.5', 'high')
-  expect(await bg(mid), 'gray once a tool call follows it').toBe('#303030')
-  expect(await bg(last)).toBeUndefined()
-  await $.turn.complete({ turnId: 't1', answer: 'Done.', durationMs: 1, isAborted: false, reason: 'answer' } as any)
-  expect(await bg(last), 'the final answer keeps its own color').not.toBe('#303030')
-  await mid.unmount()
-  await last.unmount()
 })
 
 test('one list is open at a time: a picker and a drawer close each other', async ($, on) => {
@@ -237,20 +155,6 @@ test('pressing model or effort opens a picker that runs the command', async ($, 
   expect(ran[1]).toEqual({ command: 'effort', args: 'max' })
   expect((await ui.find({ type: 'Box', key: 'r0' }))?.text).toEqual(expect.stringMatching(/max/))
   await ui.unmount()
-})
-
-test('replies have Claude\'s gutter', async ($, on) => {
-  engine(on)
-  await step($, 'Opus 5.5', 'max')
-  const reply = await $.ui.mount({
-    plugin: 'statusbar',
-    surface: 'terminal',
-    component: 'AssistantMessage',
-    props: { text: 'hello **world**', isFirstOfReply: true },
-  } as any)
-  expect(await reply.find({ type: 'Markdown', text: 'hello' })).toBeDefined()
-  expect(await reply.find({ type: 'Box', key: 'gutter' })).toBeDefined()
-  await reply.unmount()
 })
 
 test('every gauge shows before any is dropped, within the room, at any width', () => {
