@@ -13,6 +13,11 @@
       "name": "filepicker",
       "source": "./filepicker",
       "description": "Browse and pick files and folders above the prompt while an @ mention is typed"
+    },
+    {
+      "name": "peek",
+      "source": "./peek",
+      "description": "Folds every tool call in the transcript to one line, and reads the conversation in a pane a page at a time: under your prompt, what Claude did between two of its messages, the pages before and after a press away"
     }
   ]
 }

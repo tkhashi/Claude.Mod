@@ -9,6 +9,7 @@ Mods (plugins) for [Claude Code](https://claude.com/claude-code) that reshape it
 | --- | --- |
 | [statusbar](statusbar/README.md) | A vim-style powerline band above the prompt: model, effort, path, git, PR, worktrees and subagents, plus usage gauges |
 | [filepicker](filepicker/README.md) | A file and folder browser that opens while you type an `@` mention, with Quick Look preview |
+| [peek](peek/README.md) | Folds each tool call in the transcript to one line (results hidden), and shows the conversation in a pane a page at a time: under your prompt, the thinking and tool calls between two of Claude's messages, each call's input and result shown or folded per call, the other pages a press away |
 
 See each mod's README for its features and requirements.
 
@@ -24,6 +25,7 @@ Add this repository as a marketplace, then install the mods you want:
 claude plugin marketplace add tkhashi/Claude.Mods
 claude plugin install statusbar@local-mods
 claude plugin install filepicker@local-mods
+claude plugin install peek@local-mods
 ```
 
 Start a new session to load them. To update later:
@@ -32,16 +34,17 @@ Start a new session to load them. To update later:
 claude plugin marketplace update local-mods
 claude plugin update statusbar@local-mods
 claude plugin update filepicker@local-mods
+claude plugin update peek@local-mods
 ```
 
-Both mods need Claude Code with mod (plugin hooks) support and a [Nerd Font](https://www.nerdfonts.com/) in your terminal.
+All mods need Claude Code with mod (plugin hooks) support and a [Nerd Font](https://www.nerdfonts.com/) in your terminal.
 
 ## Development
 
 The source of truth is this repository. To work on it locally, point the `local-mods` marketplace at your clone (for example by symlinking `~/.claude/local-mods` to it), then:
 
 ```sh
-cd statusbar   # or filepicker
+cd statusbar   # or filepicker, peek
 claude plugin validate .
 claude plugin test .
 ```
