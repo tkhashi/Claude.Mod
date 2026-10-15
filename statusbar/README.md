@@ -13,7 +13,7 @@ A [Claude Code](https://claude.com/claude-code) mod that draws a vim-style power
 - **Row 2**: the working directory, the branch with commits to push `↑`, to pull `↓` and uncommitted files `±`, and the pull request with its review state
 - **Usage gauges** for the 5-hour and 7-day limits, the context window and auto-compact sit on the hint line under the prompt. As the terminal narrows they shrink to bare percentages, and 5h/7d always stay in sight (shown in the band when the hint line has no room)
 - **Compact mode** puts everything on one row; the switch stays at the right end
-- Claude's replies and your prompts get a colored gutter on the left so you can tell them apart
+- Claude's replies and your prompts get a colored gutter on the left so you can tell them apart. A turn's final answer gets a faint Claude-colored background, and Claude's messages before a tool call a gray one
 
 Worktrees are listed only from the project's own `.claude/worktrees/` (or `.claude/worktree/`).
 

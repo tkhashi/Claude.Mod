@@ -31,6 +31,15 @@ const empty: Snap = {
 const snap = atom({ plugin: 'statusbar', key: 'snap' } as const, empty)
 const view = atom({ plugin: 'statusbar', key: 'view' } as const, { drawer: null, compact: false } as View)
 const picker = atom({ plugin: 'statusbar', key: 'picker' } as const, null as Picker)
+// ターンの最終回答の本文。AssistantMessage の描画が読むので、書き込むと自動で
+// 描き直される。
+const finals = atom({ plugin: 'statusbar', key: 'finals' } as const, [] as string[])
+const FINALS_KEEP = 50
+// ツール呼び出しの前に Claude が書いた途中の発言の本文。会話全体の分を持つので
+// ストアには置かず、増えたら midsVersion を上げて AssistantMessage を描き直させ
+// る。
+let mids = new Set<string>()
+const midsVersion = atom({ plugin: 'statusbar', key: 'mids' } as const, 0)
 
 const EFFORT_STORE_KEY = 'effort'
 const COMPACT_STORE_KEY = 'compact'
@@ -113,6 +122,9 @@ const prStyle: Record<string, { icon: string; bg: string }> = {
 }
 
 const USER_BG = mix(C.sky, C.ink, 0.14)
+const FINAL_BG = mix(C.claude, C.ink, 0.1)
+// 途中の発言は灰色。peek が描く要約の行と同じ色。
+const MID_BG = '#303030'
 
 const agentStatus: Record<string, { icon: string; color: string }> = {
   pending: { icon: '', color: C.dim },
@@ -985,6 +997,37 @@ async function drawHint($: any, e: any) {
   )
 }
 
+// 会話(API 形式)から、途中の発言を拾う。次のプロンプトまでにツールの呼び出し
+// が続いた Claude の発言。
+type ApiBlock = { type: string; text?: unknown }
+export const midsOf = (messages: readonly { role: string; content: unknown }[]) => {
+  const found: string[] = []
+  let said: string[] = []
+  for (const m of messages) {
+    if (!Array.isArray(m?.content)) continue
+    const blocks = m.content as ApiBlock[]
+    if (m.role !== 'assistant') {
+      if (!blocks.some(b => b.type === 'tool_result')) said = []
+      continue
+    }
+    for (const b of blocks) {
+      if (b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '') said.push(b.text.trim())
+      else if (b.type === 'tool_use') {
+        found.push(...said)
+        said = []
+      }
+    }
+  }
+  return found
+}
+
+const addMids = async ($: any, texts: readonly string[]) => {
+  const fresh = texts.filter(t => !mids.has(t))
+  if (fresh.length === 0) return
+  mids = new Set([...mids, ...fresh])
+  await update($, midsVersion, n => n + 1)
+}
+
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
@@ -1003,6 +1046,10 @@ export const register: Register = on => {
       // 既定の状態から始める。
     }
     void loadModelOptions($)
+    void $.session
+      .messages({ as: 'api' })
+      .then(messages => addMids($, midsOf(messages as any)))
+      .catch(() => undefined)
     // 再読み込みや再有効化でセッション開始が再び走る。古いタイマーは止める。
     timer?.cancel()
     timer = $.clock.every(5000, () => void refresh($).catch(() => undefined))
@@ -1026,7 +1073,19 @@ export const register: Register = on => {
       const effort = effortOf(e.effort)
       if (effort) await $.store.set(EFFORT_STORE_KEY, effort)
     }
-    return yield* next(e)
+    if (e.agentId) return yield* next(e)
+    // 発言の後にツールの呼び出しが来たら、その発言は途中の発言。応答が届くそば
+    // から灰色にする。
+    const blocks = new Map<number, string>()
+    let marked = false
+    for await (const c of next(e)) {
+      if (c.kind === 'text') blocks.set(c.index, (blocks.get(c.index) ?? '') + c.text)
+      else if (c.kind === 'tool' && !marked) {
+        marked = true
+        await addMids($, [...blocks.values()].map(t => t.trim()).filter(Boolean))
+      }
+      yield c
+    }
   })
 
   // /effort は、打った場合もメニューから選んだ場合も、すぐ帯に反映する。
@@ -1061,9 +1120,19 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // メインループのターンが答えて終わったら、その最終回答を覚える。描画側はこ
+  // れと本文を突き合わせ、最終回答のブロックにだけ背景を付ける。
+  on('turn.complete', async ($, e, next) => {
+    const answer = e.answer.trim()
+    if (!e.agentId && e.reason === 'answer' && answer) {
+      await update($, finals, (l: string[]) => [...l, answer].slice(-FINALS_KEEP))
+    }
+    return next(e)
+  })
+
   // 発言者を左の縦線で示す。Claude の返答は Claude の色、ユーザーのプロンプト
-  // はその色に加えて薄い背景も付ける。Claude 側に暖色の背景を敷くと警告に見え
-  // たので、背景は付けない。
+  // はその色に加えて薄い背景も付ける。Claude の返答は、ターンの最終回答に薄い
+  // Claude の色の背景、ツール呼び出しの前の途中の発言に灰色の背景を付ける。
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.props.origin.kind !== 'composer') return next(e)
     const { Box, Text } = $.ui.resolve(e)
@@ -1077,8 +1146,12 @@ export const register: Register = on => {
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.props.isSummary) return next(e)
     const { Box, Markdown } = $.ui.resolve(e)
+    const text = e.props.text.trim()
+    const isFinal = (await read($, finals)).includes(text)
+    await read($, midsVersion)
+    const bg = isFinal ? FINAL_BG : mids.has(text) ? MID_BG : undefined
     return (
-      <Box key="gutter" borderStyle="quote" borderColor={C.claude} paddingLeft={1}>
+      <Box key="gutter" borderStyle="quote" borderColor={C.claude} backgroundColor={bg} paddingLeft={1}>
         <Markdown text={e.props.text} />
       </Box>
     )
