@@ -8,6 +8,7 @@ Mods (plugins) for [Claude Code](https://claude.com/claude-code) that reshape it
 | Mod | What it does |
 | --- | --- |
 | [statusbar](statusbar/README.md) | A vim-style powerline band above the prompt: model, effort, path, git, PR, worktrees and subagents, plus usage gauges |
+| [statusbar-buttons](statusbar-buttons/README.md) | The clickable half of statusbar (model, effort, worktrees, subagents) at the right end of the hint line under the prompt, to pair with the [statusline](statusbar-buttons/statusline/README.md) command that draws the read-only half in Claude Code's own status line |
 | [filepicker](filepicker/README.md) | A file and folder browser that opens while you type an `@` mention, with Quick Look preview |
 | [peek](peek/README.md) | Colors your prompts and Claude's messages with a gutter, folds each tool call in the transcript to one line (results hidden), and shows the conversation in a pane a page at a time: under your prompt, the thinking and tool calls between two of Claude's messages, each call's input and result shown or folded per call, the other pages a press away. The transcript has three levels: everything, without the tool lines, or your prompts and Claude's answers alone |
 
@@ -28,6 +29,7 @@ Add this repository as a marketplace, then install the mods you want:
 ```sh
 claude plugin marketplace add tkhashi/Claude.Mods
 claude plugin install statusbar@local-mods
+claude plugin install statusbar-buttons@local-mods
 claude plugin install filepicker@local-mods
 claude plugin install peek@local-mods
 ```
