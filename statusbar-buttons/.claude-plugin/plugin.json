@@ -1,0 +1,1 @@
+{"name": "statusbar-buttons", "version": "0.1.0", "description": "Model, effort, worktree and subagent buttons at the right end of the hint line, for use with the statusline script", "author": {"name": "tkhashi", "url": "https://github.com/tkhashi"}, "license": "MIT", "homepage": "https://github.com/tkhashi/Claude.Mods", "types": "./types/index.d.ts"}

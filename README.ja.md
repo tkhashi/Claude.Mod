@@ -8,6 +8,7 @@
 | Mod | 内容 |
 | --- | --- |
 | [statusbar](statusbar/README.ja.md) | プロンプトの上に出る vim 風のステータス帯。model、effort、パス、git、PR、worktree・サブエージェント、使用量ゲージ |
+| [statusbar-buttons](statusbar-buttons/README.ja.md) | statusbar の押せる部分(model、effort、worktree、サブエージェント)をプロンプト下のヒント行の右端に出す。表示専用の部分を Claude Code 本体のステータスラインに出す [statusline](statusbar-buttons/statusline/README.ja.md) コマンドと組み合わせて使う |
 | [filepicker](filepicker/README.ja.md) | `@` メンションを打っている間に開くファイル・フォルダブラウザ。Quick Look でのプレビュー付き |
 | [peek](peek/README.ja.md) | プロンプトと Claude の発言を縦線と背景で色分けし、トランスクリプトのツール呼び出しを1行ずつに畳み(結果は隠す)、会話をペインで1ページずつ表示する。プロンプトの下に、Claude の発言から次の発言までの thinking・ツール呼び出しを並べ、各呼び出しの入力と結果は呼び出しごとに表示と非表示を切り替えられる。前後のページへはボタンで移れる。トランスクリプトは、すべて・ツール呼び出しを除く・プロンプトと最後の発言だけ、の3段階で表示を切り替えられる |
 
@@ -28,6 +29,7 @@
 ```sh
 claude plugin marketplace add tkhashi/Claude.Mods
 claude plugin install statusbar@local-mods
+claude plugin install statusbar-buttons@local-mods
 claude plugin install filepicker@local-mods
 claude plugin install peek@local-mods
 ```

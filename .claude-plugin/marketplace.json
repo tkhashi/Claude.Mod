@@ -10,6 +10,11 @@
       "description": "Vim-style powerline statusline above the prompt"
     },
     {
+      "name": "statusbar-buttons",
+      "source": "./statusbar-buttons",
+      "description": "Model, effort, worktree and subagent buttons at the right end of the hint line, to pair with the statusline script"
+    },
+    {
       "name": "filepicker",
       "source": "./filepicker",
       "description": "Browse and pick files and folders above the prompt while an @ mention is typed"
