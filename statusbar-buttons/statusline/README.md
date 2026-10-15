@@ -5,6 +5,8 @@
 
 A command for Claude Code's own [status line](https://code.claude.com/docs/en/statusline) that draws the read-only half of the [statusbar](../../statusbar/README.md) mod in the look of the old `statusline-command.sh`: an orange label followed by the value, for the working directory, git and PR as well as the usage indicators. The directory and the branch take a Nerd Font icon in place of a label. The clickable half (model, effort, worktrees, subagents) is the [statusbar-buttons](../README.md) mod.
 
+![statusline](docs/screenshot.png)
+
 ## What it shows
 
 - The working directory, the branch with commits to push `↑`, to pull `↓` and uncommitted files `±` (✓ when clean), and the pull request number (a link, colored by review state): ` ~/work   main ±3  pr:#9`
