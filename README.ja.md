@@ -17,6 +17,10 @@
 | --- | --- |
 | ![statusbar](statusbar/docs/screenshot.png) | ![filepicker](filepicker/docs/screenshot.png) |
 
+| peek |
+| --- |
+| ![peek](peek/docs/screenshot.png) |
+
 ## インストール
 
 このリポジトリをマーケットプレイスとして追加し、使いたい mod をインストールします。
