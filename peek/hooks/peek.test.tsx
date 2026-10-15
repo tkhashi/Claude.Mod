@@ -109,7 +109,7 @@ const pane = ($: any, bodyColumns = 70, placement = 'dock') =>
 const peek = ($: any, columns = 70, args = '') =>
   $.command.run({ command: 'peek', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns } } as any)
 
-const pos = async (ui: any) => (await ui.find({ key: 'peek-pos' }))?.text
+const pos = async (ui: any) => (await ui.find({ key: 'peek-pos' }))?.text.trim()
 const markdown = async (ui: any) => (await ui.findAll({ type: 'Markdown' })).map((m: any) => m.props.text)
 const texts = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
 const label = async (ui: any, key: string) => (await ui.find({ key }))?.text
@@ -249,7 +249,13 @@ test('/peek opens the latest page under its prompt; the pager walks the pages be
   expect(await texts(ui)).toContain('now run the linter')
   expect(await texts(ui), 'only the page’s own prompt').not.toContain('fix the bug')
   expect(await markdown(ui)).toEqual(['Lint is clean.'])
-  expect((await ui.find({ key: 'peek-prompt-1' }))?.props).toMatchObject({ borderStyle: 'quote', borderColor: '#89dceb', backgroundColor: '#2d3948' })
+  expect((await ui.find({ key: 'peek-prompt-1' }))?.props, 'its empty border rows folded into the gaps').toMatchObject({
+    borderStyle: 'quote',
+    borderColor: '#89dceb',
+    backgroundColor: '#2d3948',
+    paddingY: 1,
+    marginY: -1,
+  })
   expect((await ui.find({ key: 'peek-step-1-0' }))?.props, 'the last message tinted Claude’s color, as in the transcript').toMatchObject({ borderColor: '#d97757', backgroundColor: '#312732' })
 
   await ui.press({ key: 'peek-prev' })
@@ -292,7 +298,7 @@ test('/peek opens the latest page under its prompt; the pager walks the pages be
 
   await peek($)
   const again = await pane($, 80)
-  expect(await label(again, 'peek-close'), 'a close button wider than the frame’s mark').toBe('  ✕ close  ')
+  expect(await label(again, 'peek-close'), 'a close button wider than the frame’s mark, with no second ✕').toBe('  close  ')
   await again.press({ key: 'peek-close' })
   expect(closed).toEqual(['peek', 'peek'])
   await again.unmount()
@@ -460,11 +466,22 @@ test('a narrow pane above the prompt keeps to short, cut lines', async ($, on) =
   const row = await tool($, { ...BASH, output: { stdout: '', stderr: 'FAIL' } })
   await row.press({ key: 'peek-open' })
   const wide = await pane($, 70, 'dock')
+  // 見せている行を囲む色付きの枠。見出しは上の辺に、前後のページへのボタンは下の
+  // 辺に埋め込む。内側は押せるよう、上下左右の4本に分けてある。
+  const topEdge = (await wide.find({ key: 'peek-frame-top' }))?.text ?? ''
+  expect(topEdge).toEqual(expect.stringMatching(/^╭─ Turn 1\/2 · page 2\/2 ─+.*─╮$/))
+  expect((await wide.find({ key: 'peek-frame-top' }))?.props).toMatchObject({ position: 'absolute', top: 0, width: 70 })
+  expect((await wide.find({ key: 'peek-frame-bottom' }))?.text).toEqual(expect.stringMatching(/^╰─ ◂ previous ─+ next ▸ ─╯$/))
+  expect((await wide.find({ key: 'peek-frame-bottom' }))?.props).toMatchObject({ position: 'absolute', top: 29 })
+  expect((await wide.find({ key: 'peek-frame-right' }))?.props).toMatchObject({ position: 'absolute', left: 69, height: 28 })
+  expect((await wide.find({ type: 'Text', text: '╭─' }))?.props.color).toBe('#b4befe')
   expect(await wide.find({ type: 'Code' }), 'the input as JSON in a wide dock').toBeDefined()
   expect(await texts(wide)).toContain('FAIL 11')
   await wide.unmount()
 
   const slim = await pane($, 30, 'inline')
+  expect(await slim.find({ key: 'peek-frame-top' }), 'above the prompt the engine’s own frame is enough').toBeUndefined()
+  expect((await slim.find({ key: 'peek-head-bar' }))?.props.top, 'the header still pinned').toBe(0)
   expect(await pos(slim)).toBe('1·2/2')
   expect(await slim.find({ type: 'Code' }), 'no JSON when narrow').toBeUndefined()
   const shown = await texts(slim)

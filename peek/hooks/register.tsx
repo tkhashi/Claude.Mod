@@ -97,6 +97,7 @@ const SHADES = {
     error: '#3b2226',
     chip: '#1e1e2e',
     hover: '#45475a',
+    frame: '#b4befe',
   },
   light: {
     prompt: '#e1f0f5',
@@ -110,6 +111,7 @@ const SHADES = {
     error: '#f9e4e4',
     chip: '#ffffff',
     hover: '#ccd0da',
+    frame: '#7287fd',
   },
 }
 const shades = () => (isLightTheme ? SHADES.light : SHADES.dark)
@@ -395,7 +397,19 @@ async function isUp($: any) {
   return panes.some(p => p.id === PANE)
 }
 
-type Reveal = 'start' | 'end' | { key: string; block: 'start' | 'center' | 'nearest' }
+type Reveal = 'start' | { key: string; block: 'start' | 'center' | 'end' | 'nearest' }
+// ページの末尾に置く目印。末尾についていくときは、本体の `end`(伸びるのに本体が
+// 黙ってついていく)ではなく、この目印まで送る。本体が描き直しを頼まずに動かすと、
+// 上下に留めた見出しとボタンの位置がずれるため。
+const END = 'peek-end'
+const toEnd: Reveal = { key: END, block: 'end' }
+
+// 最後に描いたペインが、見出しと下のボタンを見せている行の上下に留めているか。
+let pinnedPane = false
+// 本体がこれから窓を動かす先。ホイールでは、本体は窓を動かして古い描画のまま一
+// 度描き、それから描き直しを頼むので、留めたものが一瞬ずれてちらつく。動かす前に
+// 動かす先で描いておき、描き直しが届いたら本体の位置に戻す。
+let ahead: number | null = null
 
 // 描き直した後のペインで、見せたい所までスクロールする。キーで指す要素はまだ描
 // かれていないことがあるので、少し待って数回試す。
@@ -407,6 +421,8 @@ async function reveal($: any, to: Reveal) {
     if (!(await $.clock.sleep(60).then(() => true, () => false))) return
   }
 }
+
+const redraw = ($: any) => update($, pane, v => ({ ...v, version: v.version + 1 }))
 
 async function openPane($: any) {
   const opened = await $.ui.open({
@@ -467,7 +483,7 @@ async function openAt($: any, target: Target, drawn: Turn) {
       target: found.key,
       note: hit ? null : NOT_YET,
     },
-    ['start', { key: found.key, block: 'nearest' }],
+    ['start', { key: found.key, block: 'center' }],
   )
 }
 
@@ -511,10 +527,12 @@ async function toggleSegments($: any, t: number, i: number, which: readonly Segm
     return { ...v, segments, follow: false, version: v.version + 1 }
   })
   void reveal($, { key: stepKey(t, i), block: 'nearest' })
+  void settle($)
 }
 
 async function togglePrompt($: any) {
   await update($, pane, v => ({ ...v, prompt: !v.prompt, version: v.version + 1 }))
+  void settle($)
 }
 
 // 開いている間、会話を読み直す。最新のページを見ていれば、新しいページに移った
@@ -530,16 +548,18 @@ async function reload($: any) {
   const v = await update($, pane, v => ({ ...v, total, note: null, version: v.version + 1 }))
   if (v.at !== null && v.at !== undefined) return
   if (total !== before) void reveal($, 'start')
-  else if (v.follow) void reveal($, 'end')
+  void settle($, total === before && v.follow)
 }
 
-// 本人がペインを末尾までスクロールしたらページが伸びるのについていき、上へ戻し
-// たらやめる。
-async function scrolled($: any, e: { origin?: { kind: string }; offset: number; contentRows: number; bodyRows: number }) {
-  if (e.origin?.kind !== 'person') return
+// 少し後に、伸びたページの末尾へ送り(`follow`)、ペインを描き直して、上下に留めた
+// ものを今の位置に合わせる。描き直す前に送ると伸びる前の末尾で止まり、中身が縮ん
+// で本体が見せる行を詰めたときは本体が描き直しを頼まないため。
+async function settle($: any, follow = false) {
+  if (!(await $.clock.sleep(150).then(() => true, () => false))) return
   const v = await read($, pane)
-  const follow = (v.at === null || v.at === undefined) && e.offset >= e.contentRows - e.bodyRows
-  if (follow !== v.follow) await update($, pane, w => ({ ...w, follow }))
+  if (!v.open) return
+  if (follow && v.follow && (v.at === null || v.at === undefined)) await reveal($, toEnd)
+  await redraw($)
 }
 
 // MARK: 行の見た目
@@ -815,16 +835,31 @@ function drawLevels($: any, e: any, bg: string, accent: string) {
 
 // 描く所とその幅。
 type Site = { placement: Placement; columns: number }
+// ペインの枠線と、その内側の左右の余白が取る列数。
+const FRAME = 4
 
-// 見出し(ページの位置、前後のページ、最新、読み直し、閉じる)と、見ているページ。
-function drawPane($: any, e: any, v: View, site: Site) {
+// 見出し(ページの位置、前後のページ、最新、読み直し、閉じる)と、見ているページ、
+// その下の前後のページへのボタン。スクロールは本体に任せ、見出しと下のボタンは、
+// 本体が今見せている行(`scroll.offset` から `scroll.bodyRows` 行)の上端と下端に重
+// ねて描き、スクロールしても動かないようにする。右にドックしたペインは、本体が左
+// に縦線を引くだけなので、トランスクリプトや他のペインと見分けられるよう、見せて
+// いる行の全体を色付きの角丸の枠線で囲む。プロンプトの上のペインは本体が枠で囲む
+// ので、枠は描かない。
+function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number; bodyRows: number }) {
   const { Box, Text, Button } = $.ui.resolve(e)
+  const rows = scroll.bodyRows
+  // 見出しと下のボタンを重ねても中身が見える高さがあるときだけ、上下に留める。
+  const pinned = rows >= 6
+  pinnedPane = pinned
+  const framed = pinned && frame.placement === 'dock'
+  const site = framed ? { ...frame, columns: Math.max(10, frame.columns - FRAME) } : frame
   const narrow = site.columns < NARROW
   const pages = pagesOf(turns)
   const at = pageAt(v, pages.length)
   const page = pages[at]
   const mine = page ? pages.filter(p => p.turn === page.turn) : []
   const k = page ? mine.indexOf(page) + 1 : 0
+  const sh = shades()
   // 見出しのボタンの分を残して、タイトルを1行に収める。
   const title = !page
     ? ''
@@ -834,6 +869,7 @@ function drawPane($: any, e: any, v: View, site: Site) {
         ? `${page.turn + 1}·${k}/${mine.length}`
         : `Turn ${page.turn + 1} · ${k}/${mine.length}`
   // 本体の枠の ✕ は1文字で押しにくいので、見出しにも大きめの閉じるボタンを置く。
+  // 右上に ✕ が2つ並ばないよう、こちらは文字だけにする。
   const close = isLightTheme ? CLOSE.light : CLOSE.dark
 
   const nav = (key: string, hotkey: string, icon: string, on: boolean, press: () => Promise<void>) => (
@@ -841,55 +877,147 @@ function drawPane($: any, e: any, v: View, site: Site) {
       <Text bold dimColor={!on}>{` ${icon} `}</Text>
     </Button>
   )
+  const pager = (key: string, label: string, on: boolean, press: () => Promise<void>) => (
+    <Button key={key} plain onPress={press}>
+      <Text dimColor={!on}>{label}</Text>
+    </Button>
+  )
 
-  return (
-    <Box key="peek" flexDirection="column">
-      <Box key="peek-head" flexDirection="row" columnGap={1}>
-        <Box key="peek-pos" flexShrink={1}>
-          <Text bold wrap="truncate-end">
-            {title}
-          </Text>
-        </Box>
-        <Box key="peek-gap" flexGrow={1} />
-        {nav('peek-prev', 'p', '◂', at > 0, () => go($, at - 1))}
-        {nav('peek-next', 'n', '▸', at < pages.length - 1, () => go($, at + 1))}
-        {nav('peek-latest', 'e', I.latest, at < pages.length - 1, () => latest($))}
-        {nav('peek-reload', 'r', I.reload, true, () => reload($))}
-        <Box key="peek-close-chip" flexShrink={0}>
-          <Button key="peek-close" plain hotkey="x" onPress={() => $.ui.close({ id: PANE })}>
-            <Text bold backgroundColor={close.bg} hover={{ backgroundColor: close.hover }}>
-              {site.columns >= 74 ? '  ✕ close  ' : '  ✕  '}
-            </Text>
-          </Button>
-        </Box>
+  const navs = [
+    nav('peek-prev', 'p', '◂', at > 0, () => go($, at - 1)),
+    nav('peek-next', 'n', '▸', at < pages.length - 1, () => go($, at + 1)),
+    nav('peek-latest', 'e', I.latest, at < pages.length - 1, () => latest($)),
+    nav('peek-reload', 'r', I.reload, true, () => reload($)),
+    <Box key="peek-close-chip" flexShrink={0}>
+      <Button key="peek-close" plain hotkey="x" onPress={() => $.ui.close({ id: PANE })}>
+        <Text bold backgroundColor={close.bg} hover={{ backgroundColor: close.hover }}>
+          {site.columns >= 74 ? '  close  ' : ' close '}
+        </Text>
+      </Button>
+    </Box>,
+  ]
+  const head = (
+    <Box key="peek-head" flexDirection="row" columnGap={1}>
+      <Box key="peek-pos" flexShrink={1}>
+        <Text bold wrap="truncate-end">
+          {title}
+        </Text>
       </Box>
-      {agentId ? (
-        <Box key="peek-agent">
-          <Text dimColor wrap="truncate-end">{`agent ${agentId}`}</Text>
+      <Box key="peek-gap" flexGrow={1} />
+      {navs}
+    </Box>
+  )
+  const foot =
+    pages.length > 1 ? (
+      <Box key="peek-pager" flexDirection="row">
+        {pager('peek-prev-foot', narrow ? '◂' : '◂ previous', at > 0, () => go($, at - 1))}
+        <Box key="peek-pager-gap" flexGrow={1} />
+        {pager('peek-next-foot', narrow ? '▸' : 'next ▸', at < pages.length - 1, () => go($, at + 1))}
+      </Box>
+    ) : null
+  const body = [
+    agentId ? (
+      <Box key="peek-agent">
+        <Text dimColor wrap="truncate-end">{`agent ${agentId}`}</Text>
+      </Box>
+    ) : null,
+    v.note ? (
+      <Box key="peek-note">
+        <Text dimColor italic>
+          {v.note}
+        </Text>
+      </Box>
+    ) : null,
+    page ? (
+      drawPage($, e, v, site, pages, at, pinned ? 0 : 1)
+    ) : (
+      <Box key="peek-empty">
+        <Text dimColor>Nothing said yet. Your prompts and what Claude does show here as the conversation runs.</Text>
+      </Box>
+    ),
+  ]
+
+  if (!pinned)
+    return (
+      <Box key="peek" flexDirection="column">
+        {head}
+        {body}
+        {foot ? (
+          <Box key="peek-foot" marginTop={1}>
+            {foot}
+          </Box>
+        ) : null}
+        <Box key={END} height={1} flexShrink={0} />
+      </Box>
+    )
+
+  // 中身は、上下の1行(見出しと下のボタン、または枠)の下に隠れないよう、上は1行
+  // 空け、末尾には1行の目印を置く。重ねるものは中身の後に置き、その上に描かせる。
+  // 本体が動かす前に、動かす先で描く。描き直しがその位置で届いたら本体に戻す。
+  const top = ahead ?? scroll.offset
+  if (ahead === scroll.offset) ahead = null
+  const content = [body, <Box key={END} height={1} flexShrink={0} />]
+  if (!framed)
+    return (
+      <Box key="peek" flexDirection="column" paddingTop={1} minHeight={rows}>
+        {content}
+        <Box key="peek-head-bar" position="absolute" top={top} left={0} right={0} backgroundColor={sh.head}>
+          {head}
         </Box>
-      ) : null}
-      {v.note ? (
-        <Box key="peek-note">
-          <Text dimColor italic>
-            {v.note}
-          </Text>
+        {foot ? (
+          <Box key="peek-foot-bar" position="absolute" top={top + rows - 1} left={0} right={0} backgroundColor={sh.head}>
+            {foot}
+          </Box>
+        ) : null}
+      </Box>
+    )
+
+  // 右にドックしたペインは、見せている行の全体を枠で囲み、見出しを枠の上の辺に、
+  // 前後のページへのボタンを下の辺に埋め込んで、間の行をすべて中身に使う。枠は
+  // 上下左右の4本に分けて重ねる。1つの Box で囲むと、その内側を押しても中身ではな
+  // く枠が受けてしまうため。
+  const w = frame.columns
+  const ink = (text: string) => <Text color={sh.frame}>{text}</Text>
+  // 辺の残りを埋める線。幅は flex に任せ、はみ出す分は切る。
+  const rule = (key: string) => (
+    <Box key={key} flexGrow={1} flexShrink={1} width={0} height={1} overflow="hidden">
+      {ink('─'.repeat(Math.max(1, w)))}
+    </Box>
+  )
+  const side = (key: string, left: number) => (
+    <Box key={key} position="absolute" top={top + 1} left={left} width={1} height={rows - 2}>
+      {ink(Array(rows - 2).fill('│').join('\n'))}
+    </Box>
+  )
+  return (
+    <Box key="peek" flexDirection="column" paddingX={2} paddingTop={1} minHeight={rows}>
+      {content}
+      <Box key="peek-frame-top" position="absolute" top={top} left={0} width={w} height={1} flexDirection="row">
+        {ink('╭─')}
+        <Box key="peek-pos" flexShrink={1}>
+          <Text bold wrap="truncate-end">{` ${title} `}</Text>
         </Box>
-      ) : null}
-      {page ? (
-        drawPage($, e, v, site, pages, at)
-      ) : (
-        <Box key="peek-empty">
-          <Text dimColor>Nothing said yet. Your prompts and what Claude does show here as the conversation runs.</Text>
-        </Box>
-      )}
+        {rule('peek-frame-top-rule')}
+        {navs}
+        {ink('─╮')}
+      </Box>
+      <Box key="peek-frame-bottom" position="absolute" top={top + rows - 1} left={0} width={w} height={1} flexDirection="row">
+        {ink(foot ? '╰─' : '╰')}
+        {foot ? pager('peek-prev-foot', narrow ? ' ◂ ' : ' ◂ previous ', at > 0, () => go($, at - 1)) : null}
+        {rule('peek-frame-bottom-rule')}
+        {foot ? pager('peek-next-foot', narrow ? ' ▸ ' : ' next ▸ ', at < pages.length - 1, () => go($, at + 1)) : null}
+        {ink(foot ? '─╯' : '╯')}
+      </Box>
+      {side('peek-frame-left', 0)}
+      {side('peek-frame-right', w - 1)}
     </Box>
   )
 }
 
 // 1ページ。上から、そのターンのプロンプト、直前の Claude の発言、途中経過
-// (thinking とツール呼び出し)、直後の発言、前後のページへのボタン。ツール呼び
-// 出しは見出しの行だけを描き、入力と結果はそれぞれ押して出す。
-function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], at: number) {
+// (thinking とツール呼び出し)、直後の発言。ツール呼び出しは見出しの行だけを描
+// き、入力と結果はそれぞれ押して出す。
+function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], at: number, gap: number) {
   const { Box, Text, Button, Markdown, Code } = $.ui.resolve(e)
   const narrow = site.columns < NARROW
   const max = limitsOf(site.placement, narrow)
@@ -903,27 +1031,37 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
   const t = page.turn
   const turn = turns[t]!
 
+  // 左に縦線(`quote` の枠)を引いた、背景を塗ったブロック。この枠は上下にも空の
+  // 行を取るので、上下のマージンを1行ずつ戻し、前後との間を1行にしてペインの行を
+  // 使い切る。
+  const gutter = (key: string, color: string, bg: string, children: unknown) => (
+    <Box key={key} flexDirection="row" borderStyle="quote" borderColor={color} backgroundColor={bg} paddingX={1} paddingY={1} marginY={-1}>
+      {children}
+    </Box>
+  )
+
   // 長いプロンプトは頭の数行だけにし、押すと全部見せる。
   const drawPrompt = () => {
     const lines = clip(turn.prompt, MAX_CHARS).split('\n')
     const keep = site.placement === 'dock' ? 6 : 3
     const cut = lines.length > keep
     const bg = sh.prompt
-    return (
-      <Box key={`peek-prompt-${t}`} flexDirection="row" borderStyle="quote" borderColor={sh.user} backgroundColor={bg} paddingX={1} paddingY={1}>
-        <Box key={`peek-prompt-${t}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
-          <Text backgroundColor={bg} bold>
-            {(cut && !v.prompt ? lines.slice(0, keep) : lines).join('\n')}
-          </Text>
-          {cut ? (
-            <Button key="peek-prompt-more" plain onPress={() => togglePrompt($)}>
-              <Text backgroundColor={bg} dimColor italic>
-                {v.prompt ? '▴ less' : `… +${lines.length - keep} lines`}
-              </Text>
-            </Button>
-          ) : null}
-        </Box>
-      </Box>
+    return gutter(
+      `peek-prompt-${t}`,
+      sh.user,
+      bg,
+      <Box key={`peek-prompt-${t}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
+        <Text backgroundColor={bg} bold>
+          {(cut && !v.prompt ? lines.slice(0, keep) : lines).join('\n')}
+        </Text>
+        {cut ? (
+          <Button key="peek-prompt-more" plain onPress={() => togglePrompt($)}>
+            <Text backgroundColor={bg} dimColor italic>
+              {v.prompt ? '▴ less' : `… +${lines.length - keep} lines`}
+            </Text>
+          </Button>
+        ) : null}
+      </Box>,
     )
   }
 
@@ -934,12 +1072,13 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
     const step = turn.steps[i]
     if (step?.kind !== 'text') return null
     const bg = i === turn.steps.length - 1 ? sh.reply : sh.message
-    return (
-      <Box key={key} flexDirection="row" borderStyle="quote" borderColor={sh.claude} backgroundColor={bg} paddingX={1} paddingY={1}>
-        <Box key={`${key}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
-          <Markdown text={clip(step.text, MAX_CHARS)} />
-        </Box>
-      </Box>
+    return gutter(
+      key,
+      sh.claude,
+      bg,
+      <Box key={`${key}-text`} flexDirection="column" flexShrink={1} flexGrow={1}>
+        <Markdown text={clip(step.text, MAX_CHARS)} />
+      </Box>,
     )
   }
 
@@ -1048,14 +1187,8 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
     )
   }
 
-  const pager = (key: string, label: string, on: boolean, press: () => Promise<void>) => (
-    <Button key={key} plain onPress={press}>
-      <Text dimColor={!on}>{label}</Text>
-    </Button>
-  )
-
   return (
-    <Box key={`peek-page-${at}`} flexDirection="column" rowGap={1} marginTop={1}>
+    <Box key={`peek-page-${at}`} flexDirection="column" rowGap={1} marginTop={gap}>
       {turn.prompt !== '' ? drawPrompt() : null}
       {page.before >= 0 ? said(page.before) : null}
       {page.steps.length > 0 ? (
@@ -1064,13 +1197,6 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
         </Box>
       ) : null}
       {page.after >= 0 ? said(page.after) : null}
-      {pages.length > 1 ? (
-        <Box key="peek-pager" flexDirection="row">
-          {pager('peek-prev-foot', narrow ? '◂' : '◂ previous', at > 0, () => go($, at - 1))}
-          <Box key="peek-pager-gap" flexGrow={1} />
-          {pager('peek-next-foot', narrow ? '▸' : 'next ▸', at < pages.length - 1, () => go($, at + 1))}
-        </Box>
-      ) : null}
     </Box>
   )
 }
@@ -1136,8 +1262,19 @@ export const register: Register = on => {
   })
 
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (pinnedPane) {
+      ahead = e.offset
+      await redraw($)
+    }
     const r = await next(e)
-    if (!r?.deny) await scrolled($, e)
+    if (r?.deny) ahead = null
+    // 本人がペインを末尾までスクロールしたらページが伸びるのについていき、上へ戻
+    // したらやめる。
+    if (!r?.deny && e.origin?.kind === 'person') {
+      const v = await read($, pane)
+      const follow = (v.at === null || v.at === undefined) && e.offset >= e.contentRows - e.bodyRows
+      if (follow !== v.follow) await update($, pane, w => ({ ...w, follow }))
+    }
     return r
   })
 
@@ -1322,6 +1459,6 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) =>
-    drawPane($, e, await read($, pane), { placement: e.props.placement, columns: e.props.bodyColumns }),
+    drawPane($, e, await read($, pane), { placement: e.props.placement, columns: e.props.bodyColumns }, e.props.scroll ?? { offset: 0, bodyRows: 0 }),
   )
 }
