@@ -5,6 +5,8 @@
 
 A [Claude Code](https://claude.com/claude-code) mod in two parts. In the transcript, each tool call folds to one line and its result block is hidden, so a Write or an Edit no longer spills its file or diff into the conversation. In a pane, the conversation reads a page at a time: under your prompt, what Claude did between two of its messages (thinking, each tool call's input and result shown or folded at a press), the pages before and after a press away, all without switching to the ctrl+o transcript.
 
+![peek](docs/screenshot.png)
+
 ## Features
 
 - **Folded tool lines**: each tool call in the transcript is one line, `● Write(…/src/app.ts)`, its dot yellow while the call runs, green once it is done and red when it failed, with a note such as `error`, `interrupted` or `background` after it. A long path is cut from the front so the file name stays

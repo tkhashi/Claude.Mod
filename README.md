@@ -17,6 +17,10 @@ See each mod's README for its features and requirements.
 | --- | --- |
 | ![statusbar](statusbar/docs/screenshot.png) | ![filepicker](filepicker/docs/screenshot.png) |
 
+| peek |
+| --- |
+| ![peek](peek/docs/screenshot.png) |
+
 ## Install
 
 Add this repository as a marketplace, then install the mods you want:
