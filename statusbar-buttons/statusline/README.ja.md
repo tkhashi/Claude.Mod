@@ -5,6 +5,8 @@
 
 Claude Code 本体の[ステータスライン](https://code.claude.com/docs/en/statusline)に、[statusbar](../../statusbar/README.ja.md) mod の表示専用の部分を、昔の `statusline-command.sh` と同じ見た目(オレンジのラベルに値を続ける形)で、作業ディレクトリ・git・PR も使用量インジケータも出すコマンドです。パスとブランチはラベルの代わりに Nerd Font のアイコンで出します。押せる部分(model・effort・worktree・サブエージェント)は [statusbar-buttons](../README.ja.md) mod が受け持ちます。
 
+![statusline](docs/screenshot.png)
+
 ## 表示するもの
 
 - 作業ディレクトリ、ブランチ(push 待ち `↑`・pull 待ち `↓`・未コミット `±`、きれいなら ✓)、PR 番号(リンク。色はレビュー状態)。` ~/work   main ±3  pr:#9` のように出します
