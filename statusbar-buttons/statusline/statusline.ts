@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Claude Code の statusLine 用コマンド。作業場所・git・PR と使用量のインジケータを、昔の statusline-command.sh と同じ見た目(オレンジのラベルに
-// 値を続ける。` ~/work  main ±3`、`ctx:[██░░░░] 12%`)で出す。2つの間には空き行を
-// 挟む。押せるもの(model・effort・worktree・サブエージェント)は statusbar-buttons mod
+// Claude Code の statusLine 用コマンド。作業場所・git・PR と使用量のインジケータを、
+// 昔の statusline-command.sh と同じ見た目(オレンジのラベルに値を続ける。
+// ` ~/work  main ±3`、`ctx:[██░░░░] 12%`)で出す。押せるもの(model・effort・worktree・サブエージェント)は statusbar-buttons mod
 // が受け持つ。
 //
 // stdin に statusLine の JSON を受け取り、ANSI 色付きの行を標準出力へ返す。幅は環境変
@@ -172,9 +172,6 @@ const GROUP_GAP = 2
 const groupsWidth = (groups: Part[][]) => groups.reduce((n, g) => n + partsWidth(g), 0) + GROUP_GAP * Math.max(0, groups.length - 1)
 const joinGroups = (groups: Part[][]): Part[] => groups.flatMap((g, i) => (i > 0 ? [{ text: ' '.repeat(GROUP_GAP) }, ...g] : g))
 
-// 作業場所とインジケータの間の空き行。
-const MARGIN_ROWS = 1
-
 type Context = { width: number; home: string; git: Git | null }
 
 // 幅に合わせた作業場所の行。12文字を超えるブランチ名から先に縮め、足りなければ PR を
@@ -221,9 +218,8 @@ export const render = (input: Input, ctx: Context): string => {
   const left = workplace(input, ctx, width)
   const inds = indicatorsOf(input)
   const rows: Part[][] = [left]
-  // インジケータは作業場所の次の行に置き、間に空き行を挟む。空の行は描画で潰されるこ
-  // とがあるので、改行しない空白1つを書いておく。
-  if (inds.length > 0) rows.push(...Array.from({ length: MARGIN_ROWS }, () => [{ text: '\u00a0' }]), ...fitIndicators(inds, width))
+  // インジケータは作業場所の次の行に置く。間の空き行は、描画で潰されるので置かない。
+  if (inds.length > 0) rows.push(...fitIndicators(inds, width))
   return rows.map(line).join('\n')
 }
 
