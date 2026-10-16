@@ -5,11 +5,6 @@
   },
   "plugins": [
     {
-      "name": "statusbar",
-      "source": "./statusbar",
-      "description": "Vim-style powerline statusline above the prompt"
-    },
-    {
       "name": "statusbar-buttons",
       "source": "./statusbar-buttons",
       "description": "Model, effort, worktree and subagent buttons at the right end of the hint line, to pair with the statusline script"

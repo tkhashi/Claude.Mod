@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/lang-English-blue)](README.md)
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-lightgrey)](README.ja.md)
 
-A command for Claude Code's own [status line](https://code.claude.com/docs/en/statusline) that draws the read-only half of the [statusbar](../../statusbar/README.md) mod in the look of the old `statusline-command.sh`: an orange label followed by the value, for the working directory, git and PR as well as the usage indicators. The directory and the branch take a Nerd Font icon in place of a label. The clickable half (model, effort, worktrees, subagents) is the [statusbar-buttons](../README.md) mod.
+A command for Claude Code's own [status line](https://code.claude.com/docs/en/statusline) that draws the working directory, git, PR and usage indicators in the look of the old `statusline-command.sh`: an orange label followed by the value. The directory and the branch take a Nerd Font icon in place of a label. The clickable half (model, effort, worktrees, subagents) is the [statusbar-buttons](../README.md) mod.
 
 ![statusline](docs/screenshot.png)
 
