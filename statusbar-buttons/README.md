@@ -5,6 +5,8 @@
 
 The clickable half of the [statusbar](../statusbar/README.md) mod, split out to sit beside Claude Code's own status line. The read-only half (path, git, PR, usage gauges) is the [statusline](statusline/README.md) command.
 
+![statusbar-buttons](docs/screenshot.png)
+
 ## Features
 
 At the right end of the hint line under the prompt, right below the [statusline](statusline/README.md) rows, in the same joined powerline blocks as statusbar (`( a( b( c |`, flat at the right end). The hint line keeps Claude Code's own text (`auto mode on`) on the left:
