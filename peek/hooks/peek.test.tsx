@@ -350,6 +350,26 @@ test('a folded group unfolds, so each call draws as its own row; pressing a row 
   await row.unmount()
 })
 
+test('a header button unfolds every call on the page, and folds them all once all are out', async ($, on) => {
+  engine(on, [], [])
+  const row = await tool($, CALLS[0]!)
+  await row.press({ key: 'peek-open' })
+  const ui = await pane($)
+  const sources = async () => (await ui.findAll({ type: 'Code' })).map((c: any) => c.props.source).join('\n')
+  expect(await texts(ui), 'the pressed Read’s result').toContain('line 2')
+  expect(await texts(ui), 'the Grep stays folded').not.toContain('a.ts:3')
+  await ui.press({ key: 'peek-fold' })
+  expect(await texts(ui)).toContain('a.ts:3')
+  expect(await sources(), 'the Grep’s input too').toContain('"pattern"')
+  expect(await texts(ui)).toContain('line 2')
+  await ui.press({ key: 'peek-fold' })
+  expect(await texts(ui)).not.toContain('line 2')
+  expect(await texts(ui)).not.toContain('a.ts:3')
+  expect(await sources()).toBe('')
+  await ui.unmount()
+  await row.unmount()
+})
+
 test('Claude’s messages draw with a gutter: a message a tool call followed on gray, the turn’s last one tinted', async ($, on) => {
   engine(on, [], [])
   on('turn.step', async function* (_$, e) {
@@ -469,31 +489,21 @@ test('a narrow pane above the prompt keeps to short, cut lines', async ($, on) =
   const row = await tool($, { ...BASH, output: { stdout: '', stderr: 'FAIL' } })
   await row.press({ key: 'peek-open' })
   const wide = await pane($, 70, 'dock')
-  // 見せている行を囲む枠。左の辺は本体がペインの左に引く縦線(幅を変えるときにつか
-  // む所)で、左の角は右と同じ角丸をその上に描く。見出しは上の辺に、前後のページ
-  // へのボタンは下の辺に埋め込む。内側は押せるよう、上下と右の辺は分けてある。
+  // 見せている行を囲む Claude の色の枠。見出しは上の辺に、前後のページへのボタン
+  // は下の辺に埋め込む。内側は押せるよう、上下左右の4本に分けてある。
   const topEdge = (await wide.find({ key: 'peek-frame-top' }))?.text ?? ''
   expect(topEdge).toEqual(expect.stringMatching(/^╭─ Turn 1\/2 · page 2\/2 ─+.*─╮$/))
-  expect((await wide.find({ key: 'peek-frame-top' }))?.props, 'its corner on the engine’s line').toMatchObject({ position: 'absolute', top: 0, left: -1, width: 71 })
+  expect((await wide.find({ key: 'peek-frame-top' }))?.props).toMatchObject({ position: 'absolute', top: 0, left: 0, width: 70 })
   expect((await wide.find({ key: 'peek-frame-bottom' }))?.text).toEqual(expect.stringMatching(/^╰─ ◂ previous ─+ next ▸ ─╯$/))
-  expect((await wide.find({ key: 'peek-frame-bottom' }))?.props).toMatchObject({ position: 'absolute', top: 29, left: -1 })
+  expect((await wide.find({ key: 'peek-frame-bottom' }))?.props).toMatchObject({ position: 'absolute', top: 29 })
+  expect((await wide.find({ key: 'peek-frame-left' }))?.props).toMatchObject({ position: 'absolute', left: 0, height: 28 })
   expect((await wide.find({ key: 'peek-frame-right' }))?.props).toMatchObject({ position: 'absolute', left: 69, height: 28 })
-  expect(await wide.find({ key: 'peek-frame-left' }), 'the engine’s line is the left side, so it can still be dragged').toBeUndefined()
-  expect((await wide.find({ type: 'Text', text: '╭─' }))?.props.color, 'the engine’s color for a pane with the keys').toBe('permission')
+  expect((await wide.find({ type: 'Text', text: '╭─' }))?.props.color).toBe('#d97757')
   expect(await wide.find({ type: 'Code' }), 'the input as JSON in a wide dock').toBeDefined()
   expect(await texts(wide)).toContain('FAIL 11')
   // 閉じて、狭いターミナルで開き直したもの。
   await wide.press({ key: 'peek-close' })
   await wide.unmount()
-  const idle = await $.ui.mount({
-    plugin: 'peek',
-    surface: 'terminal',
-    component: 'Pane',
-    requestId: 'peek',
-    props: { title: 'Peek', isFocused: false, bodyColumns: 70, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
-  } as any)
-  expect((await idle.find({ type: 'Text', text: '╭─' }))?.props, 'dim, as the engine’s line, without the keys').toMatchObject({ dimColor: true })
-  await idle.unmount()
   await row.press({ key: 'peek-open' })
   const slim = await pane($, 30, 'inline')
   expect(await slim.find({ key: 'peek-frame-top' }), 'above the prompt the engine’s own frame is enough').toBeUndefined()

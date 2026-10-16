@@ -19,6 +19,8 @@ const I = {
   open: '\u{f06e}',
   latest: '\u{f051}',
   reload: '\u{f021}',
+  unfold: '\u{f196}',
+  fold: '\u{f147}',
 }
 
 const closed: View = {
@@ -528,14 +530,31 @@ const latest = ($: any) => go($, Number.MAX_SAFE_INTEGER)
 
 // ツール呼び出しの入力や結果を見せる・隠す。1つでも隠れていればすべて見せ、す
 // べて見えていればすべて隠す。読んでいる所に留まるよう、末尾へは送らなくする。
+const flip = (shown: readonly string[], ids: readonly string[]) =>
+  ids.every(id => shown.includes(id)) ? shown.filter(id => !ids.includes(id)) : [...new Set([...shown, ...ids])]
+
 async function toggleSegments($: any, t: number, i: number, which: readonly Segment[]) {
-  await update($, pane, v => {
-    const ids = which.map(s => segmentOf(t, i, s))
-    const shown = v.segments ?? []
-    const segments = ids.every(id => shown.includes(id)) ? shown.filter(id => !ids.includes(id)) : [...new Set([...shown, ...ids])]
-    return { ...v, segments, follow: false, version: v.version + 1 }
-  })
+  await update($, pane, v => ({ ...v, segments: flip(v.segments ?? [], which.map(s => segmentOf(t, i, s))), follow: false, version: v.version + 1 }))
   void reveal($, { key: stepKey(t, i), block: 'nearest' })
+  void settle($)
+}
+
+// ページのツール呼び出しの、出し入れできる部分(入力は見出しに収まらないときだ
+// け)。
+const segmentsOf = (page: Page) =>
+  page.steps.flatMap(i => {
+    const step = turns[page.turn]?.steps[i]
+    if (step?.kind !== 'call') return []
+    const parts: Segment[] = detailOf(step.call.input) ? ['input', 'result'] : ['result']
+    return parts.map(s => segmentOf(page.turn, i, s))
+  })
+
+// ページのツール呼び出しの入力と結果を、まとめて見せる・隠す。決め方は1つずつの
+// ときと同じ。読んでいる所に留まる。
+async function toggleAll($: any, page: Page) {
+  const ids = segmentsOf(page)
+  if (ids.length === 0) return
+  await update($, pane, v => ({ ...v, segments: flip(v.segments ?? [], ids), follow: false, version: v.version + 1 }))
   void settle($)
 }
 
@@ -844,18 +863,16 @@ function drawLevels($: any, e: any, bg: string, accent: string) {
 
 // 描く所とその幅。
 type Site = { placement: Placement; columns: number }
-// ペインの枠線と、その内側の左右の余白が取る列数。左の辺は本体の縦線を使うので、
-// 右の辺と左右の余白の分。
-const FRAME = 3
+// ペインの枠線と、その内側の左右の余白が取る列数。
+const FRAME = 4
 
 // 見出し(ページの位置、前後のページ、最新、読み直し、閉じる)と、見ているページ、
 // その下の前後のページへのボタン。スクロールは本体に任せ、見出しと下のボタンは、
 // 本体が今見せている行(`scroll.offset` から `scroll.bodyRows` 行)の上端と下端に重
 // ねて描き、スクロールしても動かないようにする。右にドックしたペインは、本体が左
 // に縦線を引くだけなので、トランスクリプトや他のペインと見分けられるよう、見せて
-// いる行の全体を枠線で囲む。枠の左の辺は本体の縦線で、幅を変えるときにつかむ境目
-// がそのまま枠の辺になる。プロンプトの上のペインは本体が枠で囲むので、枠は描かな
-// い。
+// いる行の全体を Claude の色の角丸の枠線で囲む。プロンプトの上のペインは本体が枠
+// で囲むので、枠は描かない。
 function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number; bodyRows: number }) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const rows = scroll.bodyRows
@@ -894,7 +911,12 @@ function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number
     </Button>
   )
 
+  // ページのツール呼び出しをまとめて出し入れするボタン。すべて出ていれば畳む印に
+  // する。
+  const parts = page ? segmentsOf(page) : []
+  const allOut = parts.length > 0 && parts.every(id => (v.segments ?? []).includes(id))
   const navs = [
+    nav('peek-fold', 'a', allOut ? I.fold : I.unfold, parts.length > 0, async () => (page ? toggleAll($, page) : undefined)),
     nav('peek-prev', 'p', '◂', at > 0, () => go($, at - 1)),
     nav('peek-next', 'n', '▸', at < pages.length - 1, () => go($, at + 1)),
     nav('peek-latest', 'e', I.latest, at < pages.length - 1, () => latest($)),
@@ -984,26 +1006,26 @@ function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number
     )
 
   // 右にドックしたペインは、見せている行の全体を枠で囲み、見出しを枠の上の辺に、
-  // 前後のページへのボタンを下の辺に埋め込んで、間の行をすべて中身に使う。枠の左
-  // の辺は描かず、本体がペインの左に引く縦線(幅を変えるときにつかむ所)をそのまま
-  // 使う。左の角は右と同じ角丸にして縦線の上に描き、本体と同じく、ペインがキーを
-  // 受け取っている間は `permission` の色、それ以外は薄い色にする。縦線の上に描いた
-  // 行は本体がつかめなくなるので、縦線に重ねるのはこの2つの角だけにする。上下と右
-  // の辺は分けて重ねる。1つの Box で囲むと、その内側を押しても中身ではなく枠が受
-  // けてしまうため。
+  // 前後のページへのボタンを下の辺に埋め込んで、間の行をすべて中身に使う。枠は
+  // 上下左右の4本に分けて重ねる。1つの Box で囲むと、その内側を押しても中身ではな
+  // く枠が受けてしまうため。
   const w = frame.columns
-  const focused = e.props?.isFocused === true
-  const ink = (text: string) => (focused ? <Text color="permission">{text}</Text> : <Text dimColor>{text}</Text>)
+  const ink = (text: string) => <Text color={sh.claude}>{text}</Text>
   // 辺の残りを埋める線。幅は flex に任せ、はみ出す分は切る。
   const rule = (key: string) => (
     <Box key={key} flexGrow={1} flexShrink={1} width={0} height={1} overflow="hidden">
       {ink('─'.repeat(Math.max(1, w)))}
     </Box>
   )
+  const side = (key: string, left: number) => (
+    <Box key={key} position="absolute" top={top + 1} left={left} width={1} height={rows - 2}>
+      {ink(Array(rows - 2).fill('│').join('\n'))}
+    </Box>
+  )
   return (
-    <Box key="peek" flexDirection="column" paddingLeft={1} paddingRight={2} paddingTop={1} minHeight={rows}>
+    <Box key="peek" flexDirection="column" paddingX={2} paddingTop={1} minHeight={rows}>
       {content}
-      <Box key="peek-frame-top" position="absolute" top={top} left={-1} width={w + 1} height={1} flexDirection="row">
+      <Box key="peek-frame-top" position="absolute" top={top} left={0} width={w} height={1} flexDirection="row">
         {ink('╭─')}
         <Box key="peek-pos" flexShrink={1}>
           <Text bold wrap="truncate-end">{` ${title} `}</Text>
@@ -1012,16 +1034,15 @@ function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number
         {navs}
         {ink('─╮')}
       </Box>
-      <Box key="peek-frame-bottom" position="absolute" top={top + rows - 1} left={-1} width={w + 1} height={1} flexDirection="row">
+      <Box key="peek-frame-bottom" position="absolute" top={top + rows - 1} left={0} width={w} height={1} flexDirection="row">
         {ink(foot ? '╰─' : '╰')}
         {foot ? pager('peek-prev-foot', narrow ? ' ◂ ' : ' ◂ previous ', at > 0, () => go($, at - 1)) : null}
         {rule('peek-frame-bottom-rule')}
         {foot ? pager('peek-next-foot', narrow ? ' ▸ ' : ' next ▸ ', at < pages.length - 1, () => go($, at + 1)) : null}
         {ink(foot ? '─╯' : '╯')}
       </Box>
-      <Box key="peek-frame-right" position="absolute" top={top + 1} left={w - 1} width={1} height={rows - 2}>
-        {ink(Array(rows - 2).fill('│').join('\n'))}
-      </Box>
+      {side('peek-frame-left', 0)}
+      {side('peek-frame-right', w - 1)}
     </Box>
   )
 }
