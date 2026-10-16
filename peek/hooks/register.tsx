@@ -71,8 +71,9 @@ let callIds = new Set<string>()
 // 多いのでストアには置かず、変えたら pane の version を上げて描き直させる。
 let turns: Turn[] = []
 let agentId: string | null = null
-// 最後に測られたターミナルの大きさ。ペインを開くときに希望する幅と高さに使う。
-let terminal = { columns: 120, rows: 40 }
+// 最後に測られたターミナルの大きさと、fullscreen 表示か(まだ測られていなけれ
+// ば undefined)。ペインを開くときに希望する幅と高さ、置ける場所に使う。
+let terminal: { columns: number; rows: number; fullscreen?: boolean } = { columns: 120, rows: 40 }
 // ctrl+o のトランスクリプトや --verbose で、行を全部見せているか。ツールの行
 // はそれを知らないので、本人のプロンプトの行が持つ値を写しておく。
 let isExpandedView = false
@@ -397,6 +398,62 @@ async function isUp($: any) {
   return panes.some(p => p.id === PANE)
 }
 
+// fullscreen 表示で、本体がペインを右にドックする幅。これより狭いと本体はプロ
+// ンプトの上に置くので、ペインはそこには出さない(fullscreen でない画面ではドッ
+// クできないので、プロンプトの上に置く)。
+const DOCK_FLOOR = 110
+const cramped = () => terminal.fullscreen === true && terminal.columns < DOCK_FLOOR
+const WAITING = `peek: opens on the right once the terminal is ${DOCK_FLOOR} columns wide`
+
+const paneArgs = () => ({
+  id: PANE,
+  title: 'Peek',
+  focus: true,
+  closeOnEscape: true,
+  columns: dockColumns(terminal.columns),
+  rows: inlineRows(terminal.rows),
+})
+
+// 本人の操作から開いたペインは、本体が幅を問わず置く(狭ければプロンプトの上)。
+// 操作の外から開けば、本体は狭い間は描かずに待たせ、ターミナルが広がったら右
+// にドックする。押したときの `$` からは時計で遅らせても操作の内なので、行を描き
+// 直させ、描くときの `$` から開く。
+let openOnDraw = false
+const openLater = ($: any) => {
+  openOnDraw = true
+  $.ui.invalidate('ui.render')
+}
+const measured = ($: any, viewport: Parameters<typeof remember>[0]) => {
+  remember(viewport)
+  if (!openOnDraw) return
+  openOnDraw = false
+  void $.ui.open(paneArgs()).catch(() => undefined)
+}
+
+// ドックしていたペインが、ターミナルが狭まってプロンプトの上に移されたら、閉じ
+// て操作の外から開き直し、広がるまで待たせる。閉じる間は開いている状態のままに
+// する。
+let parking = false
+// 最後にドックして描いたときのスクロール位置。
+let dockOffset = 0
+// 待たせたペインが右に置かれたら見せる所。待たせる前のスクロール位置か、狭い
+// 間に押された行。
+let onDock: number | Reveal[] | null = null
+// 次の `ui.scroll` で移す先。本体のスクロールの呼び出しは要素か端しか指せない
+// ので、端へ送る途中で行き先を書き換える。
+let scrollTo: number | null = null
+function park($: any) {
+  if (parking) return
+  parking = true
+  onDock ??= dockOffset
+  $.ui.toast(WAITING)
+  void (async () => {
+    await $.ui.close({ id: PANE }).catch(() => undefined)
+    await $.ui.open(paneArgs()).catch(() => undefined)
+    parking = false
+  })()
+}
+
 type Reveal = 'start' | { key: string; block: 'start' | 'center' | 'end' | 'nearest' }
 // ページの末尾に置く目印。末尾についていくときは、本体の `end`(伸びるのに本体が
 // 黙ってついていく)ではなく、この目印まで送る。本体が描き直しを頼まずに動かすと、
@@ -424,16 +481,18 @@ async function reveal($: any, to: Reveal) {
 
 const redraw = ($: any) => update($, pane, v => ({ ...v, version: v.version + 1 }))
 
-async function openPane($: any) {
-  const opened = await $.ui.open({
-    id: PANE,
-    title: 'Peek',
-    focus: true,
-    closeOnEscape: true,
-    columns: dockColumns(terminal.columns),
-    rows: inlineRows(terminal.rows),
-  })
+// 開いて、今描かれたか。狭い間は待たせ、右に置かれたら `to` を見せる。
+async function openPane($: any, to: Reveal[]) {
+  if (cramped()) {
+    // 待っているペインを本人の操作から開き直すと、プロンプトの上に置かれる。
+    if (!(await isUp($))) openLater($)
+    onDock = to
+    $.ui.toast(WAITING)
+    return false
+  }
+  const opened = await $.ui.open(paneArgs())
   if (!opened.isPlaced) $.ui.toast(`peek: ${opened.reason}`)
+  return true
 }
 
 // 会話を読み込んで開き、順に見せたい所までスクロールする。
@@ -441,10 +500,11 @@ async function show($: any, list: Turn[], agent: string | null, patch: Partial<V
   turns = list
   agentId = agent
   await update($, pane, v => ({ ...v, open: true, total: pagesOf(list).length, note: null, ...patch, version: v.version + 1 }))
-  await openPane($)
-  void (async () => {
-    for (const r of to) await reveal($, r)
-  })()
+  if (await openPane($, to)) void revealAll($, to)
+}
+
+const revealAll = async ($: any, to: Reveal[]) => {
+  for (const r of to) await reveal($, r)
 }
 
 const NOT_YET = 'Not in the conversation yet (still running, or compacted): showing what the row holds.'
@@ -1201,8 +1261,8 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
   )
 }
 
-const remember = (viewport: { columns: number; rows: number } | undefined) => {
-  if (viewport) terminal = { columns: viewport.columns, rows: viewport.rows }
+const remember = (viewport: { columns: number; rows: number; isFullscreen?: boolean } | undefined) => {
+  if (viewport) terminal = { columns: viewport.columns, rows: viewport.rows, fullscreen: viewport.isFullscreen ?? terminal.fullscreen }
 }
 
 // MARK: フック
@@ -1229,7 +1289,7 @@ export const register: Register = on => {
     // モジュールが読み直されたときは、開いていた会話を読み直して描き直す。前の
     // 版で帯に開いていたものはペインに開く。
     if ((await read($, pane)).open) {
-      if (!(await isUp($))) await openPane($)
+      if (!(await isUp($))) await openPane($, [])
       await reload($)
     }
     return next(e)
@@ -1250,18 +1310,34 @@ export const register: Register = on => {
       await setLevel($, Number(arg) as Level)
       return { text: LEVELS[level] }
     }
+    if (e.presentation) terminal = { ...terminal, columns: e.presentation.columns, fullscreen: e.presentation.isFullscreen }
     await toggle($)
     return {}
   })
 
-  // ペインを閉じたら(✕、ctrl+x x、Esc)、開いていない状態に戻す。
+  // ペインを閉じたら(✕、ctrl+x x、Esc)、開いていない状態に戻す。広がるまで待た
+  // せるために閉じるときはそのまま。
+  // 本人が手で閉じたものは、こちらの閉じる処理として閉じ直す。本体は手で閉じら
+  // れたペインを、操作の外から開いたときに 144 列になるまで置かないので、狭い間
+  // に押して待たせたペインが 110 列で右に出なくなるため。
   on('ui.close', async ($, e, next) => {
+    if (e.id === PANE && e.origin?.kind === 'person') {
+      void $.ui.close({ id: PANE }).catch(() => undefined)
+      return { value: undefined }
+    }
     const r = await next(e)
-    if (e.id === PANE) await update($, pane, v => ({ ...v, open: false }))
+    if (e.id === PANE && !parking) {
+      onDock = null
+      await update($, pane, v => ({ ...v, open: false }))
+    }
     return r
   })
 
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
+    if (scrollTo !== null && e.origin?.kind !== 'person') {
+      e = { ...e, offset: scrollTo }
+      scrollTo = null
+    }
     if (pinnedPane) {
       ahead = e.offset
       await redraw($)
@@ -1324,6 +1400,7 @@ export const register: Register = on => {
   // 右端に、トランスクリプトの詳しさを選ぶボタンを置く。
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
+    measured($, e.viewport)
     const own = !e.props.from && !e.props.task
     if (own && e.props.isExpanded !== isExpandedView) {
       isExpandedView = e.props.isExpanded
@@ -1355,7 +1432,7 @@ export const register: Register = on => {
   // 1つずつのツールの行(Write、Edit、Bash など)。1行に畳んで押せるようにし、
   // 押すとその呼び出しのターンを開く。2 と 3 では隠す。
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    remember(e.viewport)
+    measured($, e.viewport)
     if (e.surface !== 'terminal' || isExpandedView) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const row = e.props
@@ -1400,7 +1477,7 @@ export const register: Register = on => {
   // 本体が畳んだツールの行(`Read 3 files, ran 2 shell commands`)。展開して、
   // 呼び出しを1つずつ上の ToolUse の行として描かせる。
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    remember(e.viewport)
+    measured($, e.viewport)
     if (e.surface !== 'terminal' || isExpandedView || e.props.isExpanded) return next(e)
     return next({ ...e, props: { ...e.props, isExpanded: true } })
   })
@@ -1411,7 +1488,7 @@ export const register: Register = on => {
   // の行は、点を付けず上下に1行ずつ空けた灰色の帯にする。押すと、要約の元の
   // thinking を含むターンを開く。3 では、途中の発言と要約の行を隠す。
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    remember(e.viewport)
+    measured($, e.viewport)
     if (e.surface !== 'terminal') return next(e)
     await read($, marks)
     const text = e.props.text
@@ -1458,7 +1535,22 @@ export const register: Register = on => {
     )
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) =>
-    drawPane($, e, await read($, pane), { placement: e.props.placement, columns: e.props.bodyColumns }, e.props.scroll ?? { offset: 0, bodyRows: 0 }),
-  )
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    measured($, e.viewport)
+    if (e.props.placement === 'inline' && cramped()) {
+      park($)
+      const { Box } = $.ui.resolve(e)
+      return <Box key="peek-parked" />
+    }
+    if (e.props.placement === 'dock') {
+      const to = onDock
+      onDock = null
+      if (typeof to === 'number') {
+        scrollTo = to
+        void reveal($, 'start')
+      } else if (to) void revealAll($, to)
+      else dockOffset = e.props.scroll?.offset ?? 0
+    }
+    return drawPane($, e, await read($, pane), { placement: e.props.placement, columns: e.props.bodyColumns }, e.props.scroll ?? { offset: 0, bodyRows: 0 })
+  })
 }
