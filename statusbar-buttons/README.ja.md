@@ -5,6 +5,8 @@
 
 [statusbar](../statusbar/README.ja.md) mod の押せる部分だけを切り出し、Claude Code 本体のステータスラインの隣に置く mod です。表示専用の部分(パス・git・PR・使用量ゲージ)は [statusline](statusline/README.ja.md) コマンドが受け持ちます。
 
+![statusbar-buttons](docs/screenshot.png)
+
 ## 機能
 
 プロンプト下のヒント行の右端、[statusline](statusline/README.ja.md) の行のすぐ下に、statusbar と同じ powerline 風のつながったブロック(`( a( b( c |`、右端は平ら)で並びます。ヒント行の左側には Claude Code 本体の文言(`auto mode on` など)が残ります。
