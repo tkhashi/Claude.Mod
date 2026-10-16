@@ -40,30 +40,36 @@ const pane = atom({ plugin: 'peek', key: 'pane' } as const, closed)
 let mids: string[] = []
 const marks = atom({ plugin: 'peek', key: 'marks' } as const, 0)
 
-// トランスクリプトの詳しさ。1 はすべて(途中の発言、1行に畳んだツール呼び出し)、
-// 2 はツール呼び出しを隠し、3 は途中の発言と要約の行も隠して、プロンプトと Claude
-// の最後の発言だけにする。プロンプトと最後の発言のブロックの右下のボタンか
-// `/peek 1|2|3` で切り替え、ストアに覚えておく。
-export type Level = 1 | 2 | 3
-let level: Level = 1
-const LEVEL_KEY = 'level'
-// 前の版のまとめ表示のオン・オフ。オンだったら 3 から始める。
+// トランスクリプトの詳しさ。1 は何も畳まず、ツール呼び出しも結果のブロックも本
+// 体のとおりに描く。2 はツール呼び出しを1行に畳み(既定)、3 はそれも隠し、4 は途
+// 中の発言と要約の行も隠して、プロンプトと Claude の最後の発言だけにする。プロン
+// プトと最後の発言のブロックの右下のボタンか `/peek 1|2|3|4` で切り替え、ストアに
+// 覚えておく。
+export type Level = 1 | 2 | 3 | 4
+const isLevel = (n: unknown): n is Level => n === 1 || n === 2 || n === 3 || n === 4
+let level: Level = 2
+const LEVEL_KEY = 'detail'
+// 前の版の3段階(1 すべて、2 ツールなし、3 答えだけ)。今の 2〜4 にあたる。
+const OLD_LEVEL_KEY = 'level'
+// もっと前の版のまとめ表示のオン・オフ。オンだったら 4 から始める。
 const COMPACT_KEY = 'compact'
 // ボタンの名前。狭いトランスクリプトでは短くする。
 const LEVEL_NAMES: Record<Level, { wide: string; narrow: string }> = {
   1: { wide: 'all', narrow: 'all' },
-  2: { wide: 'no tools', narrow: 'msgs' },
-  3: { wide: 'answers', narrow: 'ans' },
+  2: { wide: 'cpt tool', narrow: 'cpt' },
+  3: { wide: 'no tools', narrow: 'msgs' },
+  4: { wide: 'answers', narrow: 'ans' },
 }
 const LEVELS: Record<Level, string> = {
-  1: 'Level 1: prompts, Claude’s messages, tool calls and answers',
-  2: 'Level 2: prompts, Claude’s messages and answers',
-  3: 'Level 3: prompts and answers',
+  1: 'Level 1: everything as Claude Code draws it: prompts, Claude’s messages, tool calls with their results, and answers',
+  2: 'Level 2: prompts, Claude’s messages, tool calls folded to one line, and answers',
+  3: 'Level 3: prompts, Claude’s messages and answers',
+  4: 'Level 4: prompts and answers',
 }
 // ターンの最後の発言(答え)の本文を詰めたもの。量が多いのでストアには置かず、変
 // えたら marks を上げる。
 let finals: string[] = []
-// 本体の会話のツール呼び出しの id。2 と 3 ではこれらの行を隠す。サブエージェン
+// 本体の会話のツール呼び出しの id。3 と 4 ではこれらの行を隠す。サブエージェン
 // トの画面の行は知らないので、いつもどおり1行ずつ描く。
 let callIds = new Set<string>()
 
@@ -71,9 +77,8 @@ let callIds = new Set<string>()
 // 多いのでストアには置かず、変えたら pane の version を上げて描き直させる。
 let turns: Turn[] = []
 let agentId: string | null = null
-// 最後に測られたターミナルの大きさと、fullscreen 表示か(まだ測られていなけれ
-// ば undefined)。ペインを開くときに希望する幅と高さ、置ける場所に使う。
-let terminal: { columns: number; rows: number; fullscreen?: boolean } = { columns: 120, rows: 40 }
+// 最後に測られたターミナルの大きさ。ペインを開くときに希望する幅と高さに使う。
+let terminal = { columns: 120, rows: 40 }
 // ctrl+o のトランスクリプトや --verbose で、行を全部見せているか。ツールの行
 // はそれを知らないので、本人のプロンプトの行が持つ値を写しておく。
 let isExpandedView = false
@@ -98,7 +103,6 @@ const SHADES = {
     error: '#3b2226',
     chip: '#1e1e2e',
     hover: '#45475a',
-    frame: '#b4befe',
   },
   light: {
     prompt: '#e1f0f5',
@@ -112,7 +116,6 @@ const SHADES = {
     error: '#f9e4e4',
     chip: '#ffffff',
     hover: '#ccd0da',
-    frame: '#7287fd',
   },
 }
 const shades = () => (isLightTheme ? SHADES.light : SHADES.dark)
@@ -398,62 +401,6 @@ async function isUp($: any) {
   return panes.some(p => p.id === PANE)
 }
 
-// fullscreen 表示で、本体がペインを右にドックする幅。これより狭いと本体はプロ
-// ンプトの上に置くので、ペインはそこには出さない(fullscreen でない画面ではドッ
-// クできないので、プロンプトの上に置く)。
-const DOCK_FLOOR = 110
-const cramped = () => terminal.fullscreen === true && terminal.columns < DOCK_FLOOR
-const WAITING = `peek: opens on the right once the terminal is ${DOCK_FLOOR} columns wide`
-
-const paneArgs = () => ({
-  id: PANE,
-  title: 'Peek',
-  focus: true,
-  closeOnEscape: true,
-  columns: dockColumns(terminal.columns),
-  rows: inlineRows(terminal.rows),
-})
-
-// 本人の操作から開いたペインは、本体が幅を問わず置く(狭ければプロンプトの上)。
-// 操作の外から開けば、本体は狭い間は描かずに待たせ、ターミナルが広がったら右
-// にドックする。押したときの `$` からは時計で遅らせても操作の内なので、行を描き
-// 直させ、描くときの `$` から開く。
-let openOnDraw = false
-const openLater = ($: any) => {
-  openOnDraw = true
-  $.ui.invalidate('ui.render')
-}
-const measured = ($: any, viewport: Parameters<typeof remember>[0]) => {
-  remember(viewport)
-  if (!openOnDraw) return
-  openOnDraw = false
-  void $.ui.open(paneArgs()).catch(() => undefined)
-}
-
-// ドックしていたペインが、ターミナルが狭まってプロンプトの上に移されたら、閉じ
-// て操作の外から開き直し、広がるまで待たせる。閉じる間は開いている状態のままに
-// する。
-let parking = false
-// 最後にドックして描いたときのスクロール位置。
-let dockOffset = 0
-// 待たせたペインが右に置かれたら見せる所。待たせる前のスクロール位置か、狭い
-// 間に押された行。
-let onDock: number | Reveal[] | null = null
-// 次の `ui.scroll` で移す先。本体のスクロールの呼び出しは要素か端しか指せない
-// ので、端へ送る途中で行き先を書き換える。
-let scrollTo: number | null = null
-function park($: any) {
-  if (parking) return
-  parking = true
-  onDock ??= dockOffset
-  $.ui.toast(WAITING)
-  void (async () => {
-    await $.ui.close({ id: PANE }).catch(() => undefined)
-    await $.ui.open(paneArgs()).catch(() => undefined)
-    parking = false
-  })()
-}
-
 type Reveal = 'start' | { key: string; block: 'start' | 'center' | 'end' | 'nearest' }
 // ページの末尾に置く目印。末尾についていくときは、本体の `end`(伸びるのに本体が
 // 黙ってついていく)ではなく、この目印まで送る。本体が描き直しを頼まずに動かすと、
@@ -463,6 +410,10 @@ const toEnd: Reveal = { key: END, block: 'end' }
 
 // 最後に描いたペインが、見出しと下のボタンを見せている行の上下に留めているか。
 let pinnedPane = false
+// 最後に描いたペインが右にドックしていたか。狭いときに開いたペインはプロンプト
+// の上に置き、ターミナルが広がれば本体が右に移す。右にあったペインを、狭まった
+// ターミナルで本体がプロンプトの上に移したら、そこには移さずに閉じる。
+let wasDocked = false
 // 本体がこれから窓を動かす先。ホイールでは、本体は窓を動かして古い描画のまま一
 // 度描き、それから描き直しを頼むので、留めたものが一瞬ずれてちらつく。動かす前に
 // 動かす先で描いておき、描き直しが届いたら本体の位置に戻す。
@@ -481,30 +432,28 @@ async function reveal($: any, to: Reveal) {
 
 const redraw = ($: any) => update($, pane, v => ({ ...v, version: v.version + 1 }))
 
-// 開いて、今描かれたか。狭い間は待たせ、右に置かれたら `to` を見せる。
-async function openPane($: any, to: Reveal[]) {
-  if (cramped()) {
-    // 待っているペインを本人の操作から開き直すと、プロンプトの上に置かれる。
-    if (!(await isUp($))) openLater($)
-    onDock = to
-    $.ui.toast(WAITING)
-    return false
-  }
-  const opened = await $.ui.open(paneArgs())
+async function openPane($: any) {
+  const opened = await $.ui.open({
+    id: PANE,
+    title: 'Peek',
+    focus: true,
+    closeOnEscape: true,
+    columns: dockColumns(terminal.columns),
+    rows: inlineRows(terminal.rows),
+  })
   if (!opened.isPlaced) $.ui.toast(`peek: ${opened.reason}`)
-  return true
 }
 
 // 会話を読み込んで開き、順に見せたい所までスクロールする。
 async function show($: any, list: Turn[], agent: string | null, patch: Partial<View>, to: Reveal[]) {
   turns = list
   agentId = agent
+  wasDocked = false
   await update($, pane, v => ({ ...v, open: true, total: pagesOf(list).length, note: null, ...patch, version: v.version + 1 }))
-  if (await openPane($, to)) void revealAll($, to)
-}
-
-const revealAll = async ($: any, to: Reveal[]) => {
-  for (const r of to) await reveal($, r)
+  await openPane($)
+  void (async () => {
+    for (const r of to) await reveal($, r)
+  })()
 }
 
 const NOT_YET = 'Not in the conversation yet (still running, or compacted): showing what the row holds.'
@@ -855,7 +804,7 @@ export const toolLine = (tool: string, input: unknown, meta: string, columns: nu
   return `(${fit(subject, Math.max(10, columns - GUTTER - 2 - frame), PATH_KEYS.includes(key ?? ''))})`
 }
 
-// トランスクリプトの詳しさを選ぶボタンの並び(`show  all  no tools  answers`)。
+// トランスクリプトの詳しさを選ぶボタンの並び(`show  all  cpt tool  no tools  answers`)。
 // ブロックの最後の行の右端に置く。今の段階はブロックの縦線の色で塗り、他は指を
 // 載せると明るくする。押すと、トランスクリプト全体がその段階になる。
 function drawLevels($: any, e: any, bg: string, accent: string) {
@@ -869,7 +818,7 @@ function drawLevels($: any, e: any, bg: string, accent: string) {
           {'show '}
         </Text>
       )}
-      {([1, 2, 3] as const).map(n => {
+      {([1, 2, 3, 4] as const).map(n => {
         const name = ` ${narrow ? LEVEL_NAMES[n].narrow : LEVEL_NAMES[n].wide} `
         return (
           <Box key={`peek-level-${n}-box`} flexShrink={0}>
@@ -895,16 +844,18 @@ function drawLevels($: any, e: any, bg: string, accent: string) {
 
 // 描く所とその幅。
 type Site = { placement: Placement; columns: number }
-// ペインの枠線と、その内側の左右の余白が取る列数。
-const FRAME = 4
+// ペインの枠線と、その内側の左右の余白が取る列数。左の辺は本体の縦線を使うので、
+// 右の辺と左右の余白の分。
+const FRAME = 3
 
 // 見出し(ページの位置、前後のページ、最新、読み直し、閉じる)と、見ているページ、
 // その下の前後のページへのボタン。スクロールは本体に任せ、見出しと下のボタンは、
 // 本体が今見せている行(`scroll.offset` から `scroll.bodyRows` 行)の上端と下端に重
 // ねて描き、スクロールしても動かないようにする。右にドックしたペインは、本体が左
 // に縦線を引くだけなので、トランスクリプトや他のペインと見分けられるよう、見せて
-// いる行の全体を色付きの角丸の枠線で囲む。プロンプトの上のペインは本体が枠で囲む
-// ので、枠は描かない。
+// いる行の全体を枠線で囲む。枠の左の辺は本体の縦線で、幅を変えるときにつかむ境目
+// がそのまま枠の辺になる。プロンプトの上のペインは本体が枠で囲むので、枠は描かな
+// い。
 function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number; bodyRows: number }) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const rows = scroll.bodyRows
@@ -1033,26 +984,26 @@ function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number
     )
 
   // 右にドックしたペインは、見せている行の全体を枠で囲み、見出しを枠の上の辺に、
-  // 前後のページへのボタンを下の辺に埋め込んで、間の行をすべて中身に使う。枠は
-  // 上下左右の4本に分けて重ねる。1つの Box で囲むと、その内側を押しても中身ではな
-  // く枠が受けてしまうため。
+  // 前後のページへのボタンを下の辺に埋め込んで、間の行をすべて中身に使う。枠の左
+  // の辺は描かず、本体がペインの左に引く縦線(幅を変えるときにつかむ所)をそのまま
+  // 使う。左の角は右と同じ角丸にして縦線の上に描き、本体と同じく、ペインがキーを
+  // 受け取っている間は `permission` の色、それ以外は薄い色にする。縦線の上に描いた
+  // 行は本体がつかめなくなるので、縦線に重ねるのはこの2つの角だけにする。上下と右
+  // の辺は分けて重ねる。1つの Box で囲むと、その内側を押しても中身ではなく枠が受
+  // けてしまうため。
   const w = frame.columns
-  const ink = (text: string) => <Text color={sh.frame}>{text}</Text>
+  const focused = e.props?.isFocused === true
+  const ink = (text: string) => (focused ? <Text color="permission">{text}</Text> : <Text dimColor>{text}</Text>)
   // 辺の残りを埋める線。幅は flex に任せ、はみ出す分は切る。
   const rule = (key: string) => (
     <Box key={key} flexGrow={1} flexShrink={1} width={0} height={1} overflow="hidden">
       {ink('─'.repeat(Math.max(1, w)))}
     </Box>
   )
-  const side = (key: string, left: number) => (
-    <Box key={key} position="absolute" top={top + 1} left={left} width={1} height={rows - 2}>
-      {ink(Array(rows - 2).fill('│').join('\n'))}
-    </Box>
-  )
   return (
-    <Box key="peek" flexDirection="column" paddingX={2} paddingTop={1} minHeight={rows}>
+    <Box key="peek" flexDirection="column" paddingLeft={1} paddingRight={2} paddingTop={1} minHeight={rows}>
       {content}
-      <Box key="peek-frame-top" position="absolute" top={top} left={0} width={w} height={1} flexDirection="row">
+      <Box key="peek-frame-top" position="absolute" top={top} left={-1} width={w + 1} height={1} flexDirection="row">
         {ink('╭─')}
         <Box key="peek-pos" flexShrink={1}>
           <Text bold wrap="truncate-end">{` ${title} `}</Text>
@@ -1061,15 +1012,16 @@ function drawPane($: any, e: any, v: View, frame: Site, scroll: { offset: number
         {navs}
         {ink('─╮')}
       </Box>
-      <Box key="peek-frame-bottom" position="absolute" top={top + rows - 1} left={0} width={w} height={1} flexDirection="row">
+      <Box key="peek-frame-bottom" position="absolute" top={top + rows - 1} left={-1} width={w + 1} height={1} flexDirection="row">
         {ink(foot ? '╰─' : '╰')}
         {foot ? pager('peek-prev-foot', narrow ? ' ◂ ' : ' ◂ previous ', at > 0, () => go($, at - 1)) : null}
         {rule('peek-frame-bottom-rule')}
         {foot ? pager('peek-next-foot', narrow ? ' ▸ ' : ' next ▸ ', at < pages.length - 1, () => go($, at + 1)) : null}
         {ink(foot ? '─╯' : '╯')}
       </Box>
-      {side('peek-frame-left', 0)}
-      {side('peek-frame-right', w - 1)}
+      <Box key="peek-frame-right" position="absolute" top={top + 1} left={w - 1} width={1} height={rows - 2}>
+        {ink(Array(rows - 2).fill('│').join('\n'))}
+      </Box>
     </Box>
   )
 }
@@ -1261,8 +1213,8 @@ function drawPage($: any, e: any, v: View, site: Site, pages: readonly Page[], a
   )
 }
 
-const remember = (viewport: { columns: number; rows: number; isFullscreen?: boolean } | undefined) => {
-  if (viewport) terminal = { columns: viewport.columns, rows: viewport.rows, fullscreen: viewport.isFullscreen ?? terminal.fullscreen }
+const remember = (viewport: { columns: number; rows: number } | undefined) => {
+  if (viewport) terminal = { columns: viewport.columns, rows: viewport.rows }
 }
 
 // MARK: フック
@@ -1273,13 +1225,20 @@ export const register: Register = on => {
       .register({
         name: PANE,
         description:
-          'Read the conversation in a pane a page at a time: under your prompt, what Claude did between two of its messages. `/peek 1|2|3` sets how much the transcript shows',
-        argumentHint: '[1|2|3]',
+          'Read the conversation in a pane a page at a time: under your prompt, what Claude did between two of its messages. `/peek 1|2|3|4` sets how much the transcript shows',
+        argumentHint: '[1|2|3|4]',
         immediate: true,
       })
       .catch(() => undefined)
     const stored = await $.store.get(LEVEL_KEY).catch(() => undefined)
-    level = stored === 1 || stored === 2 || stored === 3 ? stored : (await $.store.get(COMPACT_KEY).catch(() => undefined)) === true ? 3 : 1
+    const old = await $.store.get(OLD_LEVEL_KEY).catch(() => undefined)
+    level = isLevel(stored)
+      ? stored
+      : old === 1 || old === 2 || old === 3
+        ? ((old + 1) as Level)
+        : (await $.store.get(COMPACT_KEY).catch(() => undefined)) === true
+          ? 4
+          : 2
     const rows = await $.config.list().catch(() => [])
     isLightTheme = lightOf(rows.find(row => row.key === 'theme')?.value)
     // モジュールが読み直されたときは、描いてある行も描き直させる。
@@ -1289,7 +1248,7 @@ export const register: Register = on => {
     // モジュールが読み直されたときは、開いていた会話を読み直して描き直す。前の
     // 版で帯に開いていたものはペインに開く。
     if ((await read($, pane)).open) {
-      if (!(await isUp($))) await openPane($, [])
+      if (!(await isUp($))) await openPane($)
       await reload($)
     }
     return next(e)
@@ -1306,38 +1265,25 @@ export const register: Register = on => {
 
   on('command.run', { command: PANE }, async ($, e) => {
     const arg = e.args.trim()
-    if (arg === '1' || arg === '2' || arg === '3') {
+    if (/^[1-4]$/.test(arg)) {
       await setLevel($, Number(arg) as Level)
       return { text: LEVELS[level] }
     }
-    if (e.presentation) terminal = { ...terminal, columns: e.presentation.columns, fullscreen: e.presentation.isFullscreen }
     await toggle($)
     return {}
   })
 
-  // ペインを閉じたら(✕、ctrl+x x、Esc)、開いていない状態に戻す。広がるまで待た
-  // せるために閉じるときはそのまま。
-  // 本人が手で閉じたものは、こちらの閉じる処理として閉じ直す。本体は手で閉じら
-  // れたペインを、操作の外から開いたときに 144 列になるまで置かないので、狭い間
-  // に押して待たせたペインが 110 列で右に出なくなるため。
+  // ペインを閉じたら(✕、ctrl+x x、Esc)、開いていない状態に戻す。
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE && e.origin?.kind === 'person') {
-      void $.ui.close({ id: PANE }).catch(() => undefined)
-      return { value: undefined }
-    }
     const r = await next(e)
-    if (e.id === PANE && !parking) {
-      onDock = null
+    if (e.id === PANE) {
+      wasDocked = false
       await update($, pane, v => ({ ...v, open: false }))
     }
     return r
   })
 
   on('ui.scroll', { requestId: PANE }, async ($, e, next) => {
-    if (scrollTo !== null && e.origin?.kind !== 'person') {
-      e = { ...e, offset: scrollTo }
-      scrollTo = null
-    }
     if (pinnedPane) {
       ahead = e.offset
       await redraw($)
@@ -1400,7 +1346,6 @@ export const register: Register = on => {
   // 右端に、トランスクリプトの詳しさを選ぶボタンを置く。
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    measured($, e.viewport)
     const own = !e.props.from && !e.props.task
     if (own && e.props.isExpanded !== isExpandedView) {
       isExpandedView = e.props.isExpanded
@@ -1430,14 +1375,15 @@ export const register: Register = on => {
   })
 
   // 1つずつのツールの行(Write、Edit、Bash など)。1行に畳んで押せるようにし、
-  // 押すとその呼び出しのターンを開く。2 と 3 では隠す。
+  // 押すとその呼び出しのターンを開く。1 では本体のとおりに描き、3 と 4 では隠す。
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    measured($, e.viewport)
+    remember(e.viewport)
     if (e.surface !== 'terminal' || isExpandedView) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
     const row = e.props
     await read($, marks)
-    if (level >= 2 && callIds.has(row.tool_use_id)) return <Box key="peek-hidden" />
+    if (level === 1) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    if (level >= 3 && callIds.has(row.tool_use_id)) return <Box key="peek-hidden" />
     const meta = metaOf(row)
     const call: Call = {
       id: row.tool_use_id,
@@ -1467,9 +1413,11 @@ export const register: Register = on => {
     )
   })
 
-  // 畳んだ行の下の結果のブロック。中身はペインで見る。
+  // 畳んだ行の下の結果のブロック。中身はペインで見る。1 では本体のとおりに描く。
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (e.surface !== 'terminal' || isExpandedView) return next(e)
+    await read($, marks)
+    if (level === 1) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box key="peek-result" />
   })
@@ -1477,7 +1425,7 @@ export const register: Register = on => {
   // 本体が畳んだツールの行(`Read 3 files, ran 2 shell commands`)。展開して、
   // 呼び出しを1つずつ上の ToolUse の行として描かせる。
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
-    measured($, e.viewport)
+    remember(e.viewport)
     if (e.surface !== 'terminal' || isExpandedView || e.props.isExpanded) return next(e)
     return next({ ...e, props: { ...e.props, isExpanded: true } })
   })
@@ -1486,15 +1434,15 @@ export const register: Register = on => {
   // は薄い Claude の色、ツール呼び出しの合間の途中の発言は灰色の背景にする。最後
   // の発言には、プロンプトと同じく詳しさを選ぶボタンを置く。要約
   // の行は、点を付けず上下に1行ずつ空けた灰色の帯にする。押すと、要約の元の
-  // thinking を含むターンを開く。3 では、途中の発言と要約の行を隠す。
+  // thinking を含むターンを開く。4 では、途中の発言と要約の行を隠す。
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    measured($, e.viewport)
+    remember(e.viewport)
     if (e.surface !== 'terminal') return next(e)
     await read($, marks)
     const text = e.props.text
     const isFinal = !e.props.isSummary && isMid(finals, text)
     const isStep = !isFinal && !e.props.isSummary && isMid(mids, text)
-    if (level >= 3 && !isExpandedView && (e.props.isSummary || isStep)) {
+    if (level >= 4 && !isExpandedView && (e.props.isSummary || isStep)) {
       const { Box } = $.ui.resolve(e)
       return <Box key="peek-hidden" />
     }
@@ -1536,21 +1484,15 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    measured($, e.viewport)
-    if (e.props.placement === 'inline' && cramped()) {
-      park($)
+    if (e.props.placement === 'inline' && wasDocked) {
+      wasDocked = false
+      // 描いている間は状態を書けないので、閉じるのは描き終えてから。
+      $.clock.after(0, () => void $.ui.close({ id: PANE }).catch(() => undefined))
       const { Box } = $.ui.resolve(e)
-      return <Box key="peek-parked" />
+      return <Box key="peek-closing" />
     }
-    if (e.props.placement === 'dock') {
-      const to = onDock
-      onDock = null
-      if (typeof to === 'number') {
-        scrollTo = to
-        void reveal($, 'start')
-      } else if (to) void revealAll($, to)
-      else dockOffset = e.props.scroll?.offset ?? 0
-    }
-    return drawPane($, e, await read($, pane), { placement: e.props.placement, columns: e.props.bodyColumns }, e.props.scroll ?? { offset: 0, bodyRows: 0 })
+    const v = await read($, pane)
+    wasDocked = v.open && e.props.placement === 'dock'
+    return drawPane($, e, v, { placement: e.props.placement, columns: e.props.bodyColumns }, e.props.scroll ?? { offset: 0, bodyRows: 0 })
   })
 }

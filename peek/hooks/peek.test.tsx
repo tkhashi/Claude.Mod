@@ -84,6 +84,7 @@ const engine = (on: On, opened: any[], closed: string[], messages: unknown[] = M
   on('ui.scroll', async () => ({ value: {} }) as any)
   on('ui.focus', async () => ({ value: {} }) as any)
   on('clock.sleep', async () => ({ value: undefined }) as any)
+  on('clock.after', async () => ({ value: undefined }) as any)
   on('command.register', async (_$, e) => ({ value: { command: e.name } }) as any)
   mock.store(on)
   return drew
@@ -115,6 +116,8 @@ const texts = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((t: an
 const label = async (ui: any, key: string) => (await ui.find({ key }))?.text
 // エンジンが描いた行か。
 const engines = async (ui: any, component: string) => (await ui.find({ type: 'Text', text: `engine ${component}` })) !== undefined
+// 塗られている(選ばれている)詳しさのボタンの名前。
+const current = async (ui: any) => (await ui.findAll({ type: 'Text' })).find((t: any) => t.props.color === '#1e1e2e')?.text.trim()
 
 test('the conversation splits into turns: a prompt, the steps that follow, and Claude’s last message', () => {
   const turns = turnsOf(MESSAGES as any)
@@ -466,19 +469,32 @@ test('a narrow pane above the prompt keeps to short, cut lines', async ($, on) =
   const row = await tool($, { ...BASH, output: { stdout: '', stderr: 'FAIL' } })
   await row.press({ key: 'peek-open' })
   const wide = await pane($, 70, 'dock')
-  // 見せている行を囲む色付きの枠。見出しは上の辺に、前後のページへのボタンは下の
-  // 辺に埋め込む。内側は押せるよう、上下左右の4本に分けてある。
+  // 見せている行を囲む枠。左の辺は本体がペインの左に引く縦線(幅を変えるときにつか
+  // む所)で、左の角は右と同じ角丸をその上に描く。見出しは上の辺に、前後のページ
+  // へのボタンは下の辺に埋め込む。内側は押せるよう、上下と右の辺は分けてある。
   const topEdge = (await wide.find({ key: 'peek-frame-top' }))?.text ?? ''
   expect(topEdge).toEqual(expect.stringMatching(/^╭─ Turn 1\/2 · page 2\/2 ─+.*─╮$/))
-  expect((await wide.find({ key: 'peek-frame-top' }))?.props).toMatchObject({ position: 'absolute', top: 0, width: 70 })
+  expect((await wide.find({ key: 'peek-frame-top' }))?.props, 'its corner on the engine’s line').toMatchObject({ position: 'absolute', top: 0, left: -1, width: 71 })
   expect((await wide.find({ key: 'peek-frame-bottom' }))?.text).toEqual(expect.stringMatching(/^╰─ ◂ previous ─+ next ▸ ─╯$/))
-  expect((await wide.find({ key: 'peek-frame-bottom' }))?.props).toMatchObject({ position: 'absolute', top: 29 })
+  expect((await wide.find({ key: 'peek-frame-bottom' }))?.props).toMatchObject({ position: 'absolute', top: 29, left: -1 })
   expect((await wide.find({ key: 'peek-frame-right' }))?.props).toMatchObject({ position: 'absolute', left: 69, height: 28 })
-  expect((await wide.find({ type: 'Text', text: '╭─' }))?.props.color).toBe('#b4befe')
+  expect(await wide.find({ key: 'peek-frame-left' }), 'the engine’s line is the left side, so it can still be dragged').toBeUndefined()
+  expect((await wide.find({ type: 'Text', text: '╭─' }))?.props.color, 'the engine’s color for a pane with the keys').toBe('permission')
   expect(await wide.find({ type: 'Code' }), 'the input as JSON in a wide dock').toBeDefined()
   expect(await texts(wide)).toContain('FAIL 11')
+  // 閉じて、狭いターミナルで開き直したもの。
+  await wide.press({ key: 'peek-close' })
   await wide.unmount()
-
+  const idle = await $.ui.mount({
+    plugin: 'peek',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'peek',
+    props: { title: 'Peek', isFocused: false, bodyColumns: 70, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  } as any)
+  expect((await idle.find({ type: 'Text', text: '╭─' }))?.props, 'dim, as the engine’s line, without the keys').toMatchObject({ dimColor: true })
+  await idle.unmount()
+  await row.press({ key: 'peek-open' })
   const slim = await pane($, 30, 'inline')
   expect(await slim.find({ key: 'peek-frame-top' }), 'above the prompt the engine’s own frame is enough').toBeUndefined()
   expect((await slim.find({ key: 'peek-head-bar' }))?.props.top, 'the header still pinned').toBe(0)
@@ -516,9 +532,9 @@ test('on the latest page it moves on to new pages as the conversation runs; on a
   await ui.unmount()
 })
 
-test('three levels: 2 hides the tool calls, 3 also Claude’s messages along the way; the buttons on any prompt or answer switch the whole transcript', async ($, on) => {
+test('four levels: 1 leaves every row to the engine, 2 folds the tool calls, 3 hides them, 4 also Claude’s messages along the way; the buttons on any prompt or answer switch the whole transcript', async ($, on) => {
   const messages: unknown[] = [...MESSAGES]
-  engine(on, [], [], messages)
+  const drew = engine(on, [], [], messages)
   let chunks: unknown[] = []
   on('turn.step', async function* (_$, e) {
     for (const c of chunks) yield c as any
@@ -531,31 +547,43 @@ test('three levels: 2 hides the tool calls, 3 also Claude’s messages along the
 
   const prompt = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
   const calls = [await tool($, CALLS[0]!), await tool($, BASH)]
+  const result = await mount($, 'ToolResult', { tool_use_id: 'toolu_3', tool: 'Bash', output: 'FAIL', isErrored: true }, 'toolu_3')
+  const grouped = await group($, CALLS)
   const step = await mount($, 'AssistantMessage', { text: 'Found it.', isFirstOfReply: true })
   const summary = await mount($, 'AssistantMessage', { text: 'The off-by-one is in the loop bound.', isFirstOfReply: true, isSummary: true })
   const answer = await mount($, 'AssistantMessage', { text: 'Done.', isFirstOfReply: true })
   const other = await tool($, { ...BASH, tool_use_id: 'toolu_x' })
   const shown = async (ui: any) => (await ui.find({ key: 'peek-hidden' })) === undefined
-  // 塗られている(選ばれている)ボタンの名前。
-  const current = async (ui: any) => (await ui.findAll({ type: 'Text' })).find((t: any) => t.props.color === '#1e1e2e')?.text.trim()
 
-  expect((await prompt.find({ key: 'peek-levels' }))?.text).toBe('show  all  no tools  answers ')
-  expect(await current(prompt)).toBe('all')
-  expect(await current(answer), 'the answer has the buttons too').toBe('all')
+  expect((await prompt.find({ key: 'peek-levels' }))?.text).toBe('show  all  cpt tool  no tools  answers ')
+  expect(await current(prompt), 'the tool calls fold by default').toBe('cpt tool')
+  expect(await current(answer), 'the answer has the buttons too').toBe('cpt tool')
   expect(await step.find({ key: 'peek-levels' }), 'a message along the way has none').toBeUndefined()
   for (const row of [...calls, step, summary, answer]) expect(await shown(row)).toBe(true)
+  for (const row of calls) expect(await row.find({ key: 'peek-row' })).toBeDefined()
+  expect(await result.find({ key: 'peek-result' })).toBeDefined()
 
-  await prompt.press({ key: 'peek-level-2' })
+  await prompt.press({ key: 'peek-level-1' })
+  expect(await current(prompt)).toBe('all')
+  expect(await current(answer)).toBe('all')
+  for (const row of calls) expect(await engines(row, 'ToolUse'), 'level 1 leaves the calls to the engine').toBe(true)
+  expect(await engines(result, 'ToolResult'), 'their results too').toBe(true)
+  expect(await engines(grouped, 'ToolGroup')).toBe(true)
+  expect(drew.ToolGroup?.isExpanded, 'a group still unfolds, so nothing stays folded').toBe(true)
+  expect((await step.find({ key: 'peek-gutter' }))?.props.backgroundColor, 'the messages keep their colors').toBe('#303030')
+  expect(await summary.find({ key: 'peek-summary' })).toBeDefined()
+
+  await answer.press({ key: 'peek-level-3' })
   expect(await current(prompt)).toBe('no tools')
   expect(await current(answer)).toBe('no tools')
-  for (const row of calls) expect(await shown(row), 'level 2 hides the calls').toBe(false)
+  for (const row of calls) expect(await shown(row), 'level 3 hides the calls').toBe(false)
   expect(await other.find({ key: 'peek-row' }), 'a call the conversation does not hold (a subagent’s) keeps its line').toBeDefined()
   for (const row of [step, summary, answer]) expect(await shown(row)).toBe(true)
   expect((await step.find({ key: 'peek-gutter' }))?.props.backgroundColor).toBe('#303030')
 
-  await answer.press({ key: 'peek-level-3' })
+  await answer.press({ key: 'peek-level-4' })
   expect(await current(prompt)).toBe('answers')
-  for (const row of [...calls, step, summary]) expect(await shown(row), 'level 3 leaves the prompt and the answer').toBe(false)
+  for (const row of [...calls, step, summary]) expect(await shown(row), 'level 4 leaves the prompt and the answer').toBe(false)
   expect((await answer.find({ key: 'peek-gutter' }))?.props.backgroundColor).toBe('#312732')
 
   // 進んでいるターンの呼び出しは、届いたそばから隠す。
@@ -571,12 +599,24 @@ test('three levels: 2 hides the tool calls, 3 also Claude’s messages along the
   expect(await shown(live)).toBe(false)
   expect(await shown(said)).toBe(false)
 
-  await prompt.press({ key: 'peek-level-2' })
+  await prompt.press({ key: 'peek-level-3' })
   expect(await current(answer)).toBe('no tools')
-  expect(await shown(said), 'back at 2, the messages along the way return').toBe(true)
-  expect((await peek($, 70, '1'))?.text).toBe('Level 1: prompts, Claude’s messages, tool calls and answers')
+  expect(await shown(said), 'back at 3, the messages along the way return').toBe(true)
+  expect((await peek($, 70, '2'))?.text).toBe('Level 2: prompts, Claude’s messages, tool calls folded to one line, and answers')
   for (const row of [...calls, live]) expect(await row.find({ key: 'peek-row' })).toBeDefined()
-  for (const row of [prompt, ...calls, step, summary, answer, other, live, said]) await row.unmount()
+  expect((await peek($, 70, '1'))?.text).toBe('Level 1: everything as Claude Code draws it: prompts, Claude’s messages, tool calls with their results, and answers')
+  for (const row of [...calls, live]) expect(await engines(row, 'ToolUse')).toBe(true)
+  for (const row of [prompt, ...calls, result, grouped, step, summary, answer, other, live, said]) await row.unmount()
+})
+
+test('a level the version with three levels kept keeps its meaning: its all is now cpt tool', async ($, on) => {
+  mock.store(on, { level: 1 })
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }) as any)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }) as any)
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true } as any)
+  const prompt = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
+  expect(await current(prompt)).toBe('cpt tool')
+  await prompt.unmount()
 })
 
 test('under ctrl+o every row is drawn whatever the level, and the prompt has no level buttons', async ($, on) => {
@@ -586,7 +626,7 @@ test('under ctrl+o every row is drawn whatever the level, and the prompt has no 
   })
   for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'm', messageCount: 1 } as any)) {
   }
-  await peek($, 70, '3')
+  await peek($, 70, '4')
   const prompt = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: true })
   expect(await prompt.find({ key: 'peek-levels' })).toBeUndefined()
   const step = await mount($, 'AssistantMessage', { text: 'Found it.', isFirstOfReply: true })
@@ -598,43 +638,27 @@ test('under ctrl+o every row is drawn whatever the level, and the prompt has no 
   await back.unmount()
 })
 
-test('in fullscreen, a terminal too narrow to dock never gets the pane above the prompt: it waits, and docks once widened', async ($, on) => {
-  const opened: any[] = []
+test('opened on a narrow terminal the pane sits above the prompt and docks once widened; a docked pane the terminal narrows under closes', async ($, on) => {
   const closed: string[] = []
-  const toasts: string[] = []
-  engine(on, opened, closed)
-  on('ui.toast', async (_$, e: any) => {
-    toasts.push(e.text)
-    return { value: undefined } as any
-  })
-  const at = (columns: number, isFullscreen: boolean) =>
-    $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'ToolUse', props: BASH, requestId: BASH.tool_use_id, viewport: { columns, rows: 50, isFullscreen } } as any)
-
-  // 狭いときに押した行は、押したその場では開かず、描き直した行から開く。
-  const narrow = await at(90, true)
-  await narrow.press({ key: 'peek-open' })
-  expect(toasts, 'says where the pane will be').toEqual([expect.stringMatching(/opens on the right once the terminal is 110 columns wide/)])
-  await narrow.unmount()
-  // 本体がプロンプトの上に置いたら、閉じて開き直し、広がるまで待たせる。
-  const inline = await pane($, 80, 'inline')
-  expect(await inline.find({ key: 'peek-parked' }), 'nothing drawn above the prompt').toBeDefined()
-  expect(await inline.find({ key: 'peek-frame-top' })).toBeUndefined()
-  await inline.unmount()
-  expect(closed).toContain('peek')
-
-  // 広がって右に置かれたら、押した呼び出しのページを描く。
-  const wide = await at(140, true)
-  await wide.unmount()
-  const docked = await pane($, 60, 'dock')
-  expect(await docked.find({ key: 'peek-step-0-5' })).toBeDefined()
-  expect(await docked.find({ key: 'peek-frame-top' })).toBeDefined()
-  await docked.unmount()
-
-  // fullscreen でない画面では右にドックできないので、プロンプトの上に描く。
-  const main = await at(90, false)
-  await main.unmount()
+  engine(on, [], closed)
+  // 前のテストで右にドックしていたペインを閉じておく。
+  const before = await pane($)
+  await before.press({ key: 'peek-close' })
+  await before.unmount()
+  closed.length = 0
+  const row = await tool($, BASH)
+  await row.press({ key: 'peek-open' })
   const above = await pane($, 80, 'inline')
-  expect(await above.find({ key: 'peek-parked' })).toBeUndefined()
-  expect(await pos(above)).toBe('Turn 1/2 · page 2/2')
+  expect(await pos(above), 'drawn above the prompt').toBe('Turn 1/2 · page 2/2')
   await above.unmount()
+  const docked = await pane($, 60, 'dock')
+  expect(await docked.find({ key: 'peek-frame-top' }), 'moved to the right once wide').toBeDefined()
+  await docked.unmount()
+  expect(closed).toEqual([])
+  const narrowed = await pane($, 80, 'inline')
+  expect(await narrowed.find({ key: 'peek-closing' }), 'not drawn above the prompt').toBeDefined()
+  expect(await narrowed.find({ key: 'peek-pos' })).toBeUndefined()
+  await narrowed.unmount()
+  expect(closed).toEqual(['peek'])
+  await row.unmount()
 })
