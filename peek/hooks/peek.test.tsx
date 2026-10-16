@@ -597,3 +597,44 @@ test('under ctrl+o every row is drawn whatever the level, and the prompt has no 
   const back = await mount($, 'UserMessage', { text: 'fix the bug', origin: { kind: 'composer' }, isExpanded: false })
   await back.unmount()
 })
+
+test('in fullscreen, a terminal too narrow to dock never gets the pane above the prompt: it waits, and docks once widened', async ($, on) => {
+  const opened: any[] = []
+  const closed: string[] = []
+  const toasts: string[] = []
+  engine(on, opened, closed)
+  on('ui.toast', async (_$, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined } as any
+  })
+  const at = (columns: number, isFullscreen: boolean) =>
+    $.ui.mount({ plugin: 'peek', surface: 'terminal', component: 'ToolUse', props: BASH, requestId: BASH.tool_use_id, viewport: { columns, rows: 50, isFullscreen } } as any)
+
+  // 狭いときに押した行は、押したその場では開かず、描き直した行から開く。
+  const narrow = await at(90, true)
+  await narrow.press({ key: 'peek-open' })
+  expect(toasts, 'says where the pane will be').toEqual([expect.stringMatching(/opens on the right once the terminal is 110 columns wide/)])
+  await narrow.unmount()
+  // 本体がプロンプトの上に置いたら、閉じて開き直し、広がるまで待たせる。
+  const inline = await pane($, 80, 'inline')
+  expect(await inline.find({ key: 'peek-parked' }), 'nothing drawn above the prompt').toBeDefined()
+  expect(await inline.find({ key: 'peek-frame-top' })).toBeUndefined()
+  await inline.unmount()
+  expect(closed).toContain('peek')
+
+  // 広がって右に置かれたら、押した呼び出しのページを描く。
+  const wide = await at(140, true)
+  await wide.unmount()
+  const docked = await pane($, 60, 'dock')
+  expect(await docked.find({ key: 'peek-step-0-5' })).toBeDefined()
+  expect(await docked.find({ key: 'peek-frame-top' })).toBeDefined()
+  await docked.unmount()
+
+  // fullscreen でない画面では右にドックできないので、プロンプトの上に描く。
+  const main = await at(90, false)
+  await main.unmount()
+  const above = await pane($, 80, 'inline')
+  expect(await above.find({ key: 'peek-parked' })).toBeUndefined()
+  expect(await pos(above)).toBe('Turn 1/2 · page 2/2')
+  await above.unmount()
+})
