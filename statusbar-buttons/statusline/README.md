@@ -11,7 +11,7 @@ A command for Claude Code's own [status line](https://code.claude.com/docs/en/st
 
 - The working directory, the branch with commits to push `↑`, to pull `↓` and uncommitted files `±` (✓ when clean), and the pull request number (a link, colored by review state): ` ~/work   main ±3  pr:#9`
 - Usage indicators for the 5-hour and 7-day limits, the context window and auto-compact, in that order, as an orange label and a six-cell bar: `5h:[███░░░] 41% 7d:[█████░] 85% ctx:[░░░░░░] 12%`. The bar takes its own color, yellow from 50% and red from 80%
-- It reads the terminal width from `COLUMNS`. The indicators sit below the working directory row with a blank row between; when narrow they drop the bars to bare percentages (`ctx:12%`) and finally wrap
+- It reads the terminal width from `COLUMNS`. The indicators sit right below the working directory row; when narrow they drop the bars to bare percentages (`ctx:12%`) and finally wrap
 
 The pull request title is not shown: the status line input carries the number, URL and review state, but not the title.
 

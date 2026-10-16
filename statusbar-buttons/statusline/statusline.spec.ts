@@ -27,18 +27,16 @@ test('every row fits the terminal width at any width', () => {
   }
 })
 
-test('the workplace row comes first, then a margin row, then the indicators, at any width', () => {
+test('the workplace row comes first, then the indicators, at any width', () => {
   for (const width of [200, 70]) {
     const rows = strip(render(input, ctx(width))).split('\n')
-    assert.equal(rows.length, 3, `@${width}`)
+    assert.equal(rows.length, 2, `@${width}`)
     assert.match(rows[0]!, /~\/work\/project/)
-    assert.equal(rows[1]!.trim(), '', 'margin row')
-    assert.notEqual(rows[1], '', 'margin row is not empty, so it is not squashed')
-    assert.match(rows[2]!, /41%.*85%/)
+    assert.match(rows[1]!, /41%.*85%/)
   }
 })
 
-test('no margin row without indicators', () => {
+test('only the workplace row without indicators', () => {
   const rows = strip(render({ ...input, context_window: undefined, rate_limits: undefined }, ctx(200))).split('\n')
   assert.equal(rows.length, 1)
 })
