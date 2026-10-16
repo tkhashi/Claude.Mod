@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![日本語](https://img.shields.io/badge/lang-%E6%97%A5%E6%9C%AC%E8%AA%9E-blue)](README.ja.md)
 
-Claude Code 本体の[ステータスライン](https://code.claude.com/docs/en/statusline)に、[statusbar](../../statusbar/README.ja.md) mod の表示専用の部分を、昔の `statusline-command.sh` と同じ見た目(オレンジのラベルに値を続ける形)で、作業ディレクトリ・git・PR も使用量インジケータも出すコマンドです。パスとブランチはラベルの代わりに Nerd Font のアイコンで出します。押せる部分(model・effort・worktree・サブエージェント)は [statusbar-buttons](../README.ja.md) mod が受け持ちます。
+Claude Code 本体の[ステータスライン](https://code.claude.com/docs/en/statusline)に、作業ディレクトリ・git・PR と使用量インジケータを、昔の `statusline-command.sh` と同じ見た目(オレンジのラベルに値を続ける形)で出すコマンドです。パスとブランチはラベルの代わりに Nerd Font のアイコンで出します。押せる部分(model・effort・worktree・サブエージェント)は [statusbar-buttons](../README.ja.md) mod が受け持ちます。
 
 ![statusline](docs/screenshot.png)
 

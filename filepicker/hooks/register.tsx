@@ -25,7 +25,7 @@ const NARROW = 70
 const MAX_EXTS = 6
 const browser = atom({ plugin: 'filepicker', key: 'browser' } as const, closed)
 
-// statusbar と同じパレット(Catppuccin Mocha)。2つが1つの帯に見えるようにする。
+// statusbar-buttons と同じパレット(Catppuccin Mocha)。
 const C = {
   ink: '#1e1e2e',
   text: '#cdd6f4',

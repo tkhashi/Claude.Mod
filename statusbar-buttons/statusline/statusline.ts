@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Claude Code の statusLine 用コマンド。statusbar mod の表示系のうち、作業場所・git・PR
-// と使用量のインジケータを、昔の statusline-command.sh と同じ見た目(オレンジのラベルに
+// Claude Code の statusLine 用コマンド。作業場所・git・PR と使用量のインジケータを、昔の statusline-command.sh と同じ見た目(オレンジのラベルに
 // 値を続ける。` ~/work  main ±3`、`ctx:[██░░░░] 12%`)で出す。2つの間には空き行を
 // 挟む。押せるもの(model・effort・worktree・サブエージェント)は statusbar-buttons mod
 // が受け持つ。
